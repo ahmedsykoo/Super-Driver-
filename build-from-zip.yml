@@ -1,0 +1,53 @@
+name: Build Super Driver from ZIP
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "super_driver_v1_source.zip"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract project ZIP
+        run: |
+          rm -rf project
+          mkdir project
+          unzip -q super_driver_v1_source.zip -d project
+          ROOT="project/super_driver"
+          if [ ! -f "$ROOT/pubspec.yaml" ]; then
+            echo "pubspec.yaml not found in $ROOT"
+            find project -maxdepth 3 -type f | head -100
+            exit 1
+          fi
+          cp -a "$ROOT/." ./
+          rm -rf project
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: stable
+          cache: true
+
+      - name: Build APK
+        run: |
+          chmod +x android/gradlew
+          flutter pub get
+          flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: super-driver-release
+          path: build/app/outputs/flutter-apk/app-release.apk
