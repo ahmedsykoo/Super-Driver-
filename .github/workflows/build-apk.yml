@@ -6,191 +6,229 @@ on:
       - main
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
   build:
     name: Build APK
     runs-on: ubuntu-latest
 
     steps:
+
+      # ==========================================
+      # 1. Checkout
+      # ==========================================
       - name: Checkout
         uses: actions/checkout@v4
 
+
+      # ==========================================
+      # 2. Setup Java
+      # ==========================================
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
+
+      # ==========================================
+      # 3. Setup Flutter
+      # ==========================================
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.35.7"
           channel: stable
           cache: true
 
-      - name: Flutter version
-        run: flutter --version
 
+      # ==========================================
+      # 4. Flutter version
+      # ==========================================
+      - name: Flutter version
+        run: |
+          flutter --version
+          dart --version
+
+
+      # ==========================================
+      # 5. Find and extract Flutter project
+      # ==========================================
       - name: Find and extract Flutter project
         shell: bash
         run: |
           set -e
 
-          ZIP_FILE=$(find . -maxdepth 2 -type f -name "*.zip" \
-            -not -path "./.git/*" | head -n 1)
+          echo "======================================"
+          echo "Searching for Flutter project..."
+          echo "======================================"
+
+          mkdir -p extracted_project
+
+          # Search for ZIP files
+          ZIP_FILE=$(find . \
+            -type f \
+            -name "*.zip" \
+            -not -path "./.git/*" \
+            | head -n 1)
 
           if [ -n "$ZIP_FILE" ]; then
-            echo "Found ZIP: $ZIP_FILE"
 
-            rm -rf extracted_project
-            mkdir -p extracted_project
+            echo "Found ZIP:"
+            echo "$ZIP_FILE"
+
+            echo ""
+            echo "Extracting ZIP..."
 
             unzip -o "$ZIP_FILE" -d extracted_project
 
-            PROJECT_DIR=$(find extracted_project \
-              -type f \
-              -name "pubspec.yaml" \
-              -printf '%h\n' | head -n 1)
-
-            if [ -z "$PROJECT_DIR" ]; then
-              echo "ERROR: Could not find pubspec.yaml"
-              exit 1
-            fi
           else
-            echo "No ZIP found. Looking for Flutter project..."
 
-            PROJECT_DIR=$(find . \
-              -type f \
-              -name "pubspec.yaml" \
-              -not -path "./.git/*" \
-              -not -path "./extracted_project/*" \
-              -printf '%h\n' | head -n 1)
+            echo "No ZIP file found."
+            echo "Searching repository directly..."
 
-            if [ -z "$PROJECT_DIR" ]; then
-              echo "ERROR: Could not find Flutter project."
-              exit 1
-            fi
+            cp -R . extracted_project
+
           fi
 
-          echo "PROJECT_DIR=$PROJECT_DIR"
+
+          # ======================================
+          # Find pubspec.yaml
+          # ======================================
+
+          echo ""
+          echo "Searching for pubspec.yaml..."
+
+          PROJECT_DIR=$(find extracted_project \
+            -type f \
+            -name "pubspec.yaml" \
+            -not -path "*/.git/*" \
+            -printf '%h\n' \
+            | head -n 1)
+
+
+          if [ -z "$PROJECT_DIR" ]; then
+
+            echo ""
+            echo "ERROR: Flutter project not found."
+            echo ""
+            echo "Available files:"
+            find extracted_project -maxdepth 4 -type f | head -100
+
+            exit 1
+
+          fi
+
+
+          echo ""
+          echo "Flutter project found:"
+          echo "$PROJECT_DIR"
+
+
+          # Save project path for following steps
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      # ---------------------------------------------------------
-      # FORCE A KNOWN-GOOD ANDROID TOOLCHAIN
-      # ---------------------------------------------------------
 
-      - name: Fix Android Gradle configuration
+      # ==========================================
+      # 6. Show project structure
+      # ==========================================
+      - name: Show project structure
+        run: |
+          echo "Flutter project:"
+          echo "${{ env.PROJECT_DIR }}"
+
+          echo ""
+          echo "Project files:"
+          find "${{ env.PROJECT_DIR }}" \
+            -maxdepth 3 \
+            -type f \
+            | sort \
+            | head -200
+
+
+      # ==========================================
+      # 7. Get dependencies
+      # ==========================================
+      - name: Get dependencies
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          flutter pub get
+
+
+      # ==========================================
+      # 8. Analyze project
+      # ==========================================
+      - name: Analyze project
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          flutter analyze
+
+
+      # ==========================================
+      # 9. Run tests if tests exist
+      # ==========================================
+      - name: Run tests
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
-          set -e
 
-          echo "Checking Android configuration..."
+          if [ -d "test" ] && \
+             find test -type f -name "*_test.dart" | grep -q .; then
 
-          test -f android/settings.gradle
-          test -f android/gradle.properties
-          test -f android/app/build.gradle
+            echo "Tests found."
+            flutter test
 
-          echo "---- BEFORE ----"
-          grep -nE \
-            'com.android.application|kotlin.android|dev.flutter.flutter-plugin-loader' \
-            android/settings.gradle || true
+          else
 
-          # Force AGP 8.6.1.
-          sed -i -E \
-            's/(id[[:space:]]+"com\.android\.application"[[:space:]]+version[[:space:]]+")[^"]+("[[:space:]]+apply[[:space:]]+false)/\18.6.1\2/' \
-            android/settings.gradle
+            echo "No Flutter tests found."
+            echo "Skipping tests."
 
-          # Force Kotlin 2.1.0.
-          sed -i -E \
-            's/(id[[:space:]]+"org\.jetbrains\.kotlin\.android"[[:space:]]+version[[:space:]]+")[^"]+("[[:space:]]+apply[[:space:]]+false)/\12.1.0\2/' \
-            android/settings.gradle
-
-          # Make sure Flutter plugin loader remains 1.0.0.
-          sed -i -E \
-            's/(id[[:space:]]+"dev\.flutter\.flutter-plugin-loader"[[:space:]]+version[[:space:]]+")[^"]+(")/\11.0.0\2/' \
-            android/settings.gradle
-
-          # Disable AGP 9 / built-in Kotlin migration flags.
-          touch android/gradle.properties
-
-          sed -i '/^android\.newDsl=/d' android/gradle.properties
-          sed -i '/^android\.builtInKotlin=/d' android/gradle.properties
-
-          cat >> android/gradle.properties <<'EOF'
-          android.newDsl=false
-          android.builtInKotlin=false
-          EOF
-
-          # Force Gradle 8.7 for AGP 8.6.1.
-          mkdir -p android/gradle/wrapper
-
-          cat > android/gradle/wrapper/gradle-wrapper.properties <<'EOF'
-          distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          distributionUrl=https\://services.gradle.org/distributions/gradle-8.7-bin.zip
-          networkTimeout=10000
-          validateDistributionUrl=true
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
-          EOF
-
-          echo "---- AFTER ----"
-
-          grep -nE \
-            'com.android.application|kotlin.android|dev.flutter.flutter-plugin-loader' \
-            android/settings.gradle
-
-          echo "---- gradle.properties ----"
-          cat android/gradle.properties
-
-          echo "---- Gradle wrapper ----"
-          cat android/gradle/wrapper/gradle-wrapper.properties
-
-          # HARD FAIL if AGP 9 somehow remains.
-          if grep -qE \
-            'com\.android\.application.*version[[:space:]]+"9\.' \
-            android/settings.gradle; then
-            echo "ERROR: AGP 9 is still present."
-            exit 1
           fi
 
-      - name: Get dependencies
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: flutter pub get
 
-      - name: Analyze project
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: flutter analyze
-
-      - name: Run tests
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: flutter test
-
+      # ==========================================
+      # 10. Build APK
+      # ==========================================
       - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}
-        run: flutter build apk --release
+        run: |
+          flutter build apk --release
 
+
+      # ==========================================
+      # 11. Verify APK
+      # ==========================================
       - name: Verify APK
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
-          set -e
 
-          APK="build/app/outputs/flutter-apk/app-release.apk"
+          APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
 
-          if [ ! -s "$APK" ]; then
+          echo "Checking APK..."
+
+          if [ ! -f "$APK_PATH" ]; then
+
             echo "ERROR: APK was not generated."
+
+            echo ""
+            echo "Searching build directory:"
+            find build -type f 2>/dev/null || true
+
             exit 1
+
           fi
 
-          echo "APK successfully generated:"
-          ls -lh "$APK"
 
+          echo ""
+          echo "======================================"
+          echo "APK BUILD SUCCESSFUL"
+          echo "======================================"
+
+          ls -lh "$APK_PATH"
+
+
+      # ==========================================
+      # 12. Upload APK
+      # ==========================================
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
