@@ -88,6 +88,9 @@ jobs:
           APK='build/app/outputs/flutter-apk/app-release.apk'
           test -s "$APK"
           unzip -t "$APK" >/dev/null
+          APKSIGNER="${ANDROID_HOME}/build-tools/$(ls -1 "${ANDROID_HOME}/build-tools" | sort -V | tail -1)/apksigner"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose "$APK"
           ls -lh "$APK"
 
       - name: Upload APK

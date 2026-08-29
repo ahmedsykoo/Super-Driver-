@@ -27,6 +27,9 @@ android {
 
     buildTypes {
         release {
+            // Use the Android debug keystore for CI/testing so the APK is installable.
+            // Replace with a protected release keystore before publishing to production.
+            signingConfig signingConfigs.debug
             minifyEnabled false
             shrinkResources false
         }
