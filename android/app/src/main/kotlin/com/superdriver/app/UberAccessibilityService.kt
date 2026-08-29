@@ -7,6 +7,8 @@ import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
@@ -35,6 +37,8 @@ class UberAccessibilityService : AccessibilityService() {
     private var windowManager: WindowManager? = null
     private var lastSignature = ""
     private var lastShownAt = 0L
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val clearStaleResult = Runnable { hideOverlay() }
 
     private val priceAfterNumber = Pattern.compile(
         "(?<![0-9٠-٩۰-۹])([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)\\s*(?:ج\\s*\\.?\\s*م|ج\\.م|EGP|جنيه|جنيه\\s*مصري)",
@@ -79,19 +83,25 @@ class UberAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val packageName = event?.packageName?.toString() ?: return
-        // Keep the last valid result visible while the Uber request remains on screen.
-        // Clear it only when monitoring is explicitly disabled.
         if (!isSupportedRideApp(packageName) || !isMonitoringStored()) {
+            // Leaving Uber or disabling monitoring must remove only the trip result;
+            // the red/green status button is managed separately.
+            hideOverlay()
             return
         }
 
-        val root = rootInActiveWindow ?: return
-        val text = StringBuilder()
-        collectText(root, text, 0)
-        latestText = text.toString().trim()
-
-        val trip = parseTrip(latestText) ?: return
-        showResult(trip.first, trip.second, packageName)
+        val text = collectCurrentWindowText()
+        latestText = text
+        val trip = parseTrip(text)
+        if (trip != null) {
+            mainHandler.removeCallbacks(clearStaleResult)
+            showResult(trip.first, trip.second, packageName)
+        } else {
+            // The live offer can be populated through several accessibility events.
+            // Give it time to finish loading, then remove stale data if no valid offer appears.
+            mainHandler.removeCallbacks(clearStaleResult)
+            mainHandler.postDelayed(clearStaleResult, 5000L)
+        }
     }
 
     private fun isSupportedRideApp(packageName: String): Boolean {
@@ -99,6 +109,21 @@ class UberAccessibilityService : AccessibilityService() {
             packageName == "com.uber.client" ||
             packageName == "com.didiglobal.driver" ||
             packageName == "sinet.startup.inDriver"
+    }
+
+    private fun collectCurrentWindowText(): String {
+        val out = StringBuilder()
+        rootInActiveWindow?.let { root -> collectText(root, out, 0) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            try {
+                for (window in windows) {
+                    val root = window.root ?: continue
+                    collectText(root, out, 0)
+                    root.recycle()
+                }
+            } catch (_: Exception) { }
+        }
+        return out.toString().trim()
     }
 
     private fun collectText(node: AccessibilityNodeInfo, out: StringBuilder, depth: Int) {
@@ -306,6 +331,7 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     private fun hideOverlay() {
+        mainHandler.removeCallbacks(clearStaleResult)
         overlayView?.let { view ->
             try {
                 if (view.parent != null) windowManager?.removeView(view)
