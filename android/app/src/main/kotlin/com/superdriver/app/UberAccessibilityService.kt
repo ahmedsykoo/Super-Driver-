@@ -37,19 +37,23 @@ class UberAccessibilityService : AccessibilityService() {
     private var lastShownAt = 0L
 
     private val priceAfterNumber = Pattern.compile(
-        "(?<![0-9٠-٩۰-۹])([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)\\s*(?:ج\\s*\\.?\\s*م|ج\\.م|EGP|جنيه)",
+        "(?<![0-9٠-٩۰-۹])([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)\\s*(?:ج\\s*\\.?\\s*م|ج\\.م|EGP|جنيه|جنيه\\s*مصري)",
         Pattern.CASE_INSENSITIVE
     )
     private val priceBeforeNumber = Pattern.compile(
-        "(?:ج\\s*\\.?\\s*م|ج\\.م|EGP|جنيه)\\s*([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)",
+        "(?:ج\\s*\\.?\\s*م|ج\\.م|EGP|جنيه|جنيه\\s*مصري)\\s*([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)",
+        Pattern.CASE_INSENSITIVE
+    )
+    private val priceByLabel = Pattern.compile(
+        "(?:السعر|سعر الرحلة|المجموع|الإجمالي|المبلغ|total|fare|trip price)\\s*[:：]?\\s*([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)",
         Pattern.CASE_INSENSITIVE
     )
     private val tripDistance = Pattern.compile(
-        "(?:المسافة|مسافة|distance|trip distance)\\s*[:：]?\\s*([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)\\s*(?:كم|كلم|km)",
+        "(?:المسافة|مسافة|distance|trip distance|miles|mi|km)\\s*[:：]?\\s*([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)\\s*(?:كم|كلم|km|ميل|mi)?",
         Pattern.CASE_INSENSITIVE
     )
     private val fallbackDistance = Pattern.compile(
-        "([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)\\s*(?:كم|كلم|km)",
+        "([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)\\s*(?:كم|كلم|km|ميل|mi)",
         Pattern.CASE_INSENSITIVE
     )
 
@@ -75,8 +79,9 @@ class UberAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val packageName = event?.packageName?.toString() ?: return
+        // Keep the last valid result visible while the Uber request remains on screen.
+        // Clear it only when monitoring is explicitly disabled.
         if (!isSupportedRideApp(packageName) || !isMonitoringStored()) {
-            hideOverlay()
             return
         }
 
@@ -85,11 +90,7 @@ class UberAccessibilityService : AccessibilityService() {
         collectText(root, text, 0)
         latestText = text.toString().trim()
 
-        val trip = parseTrip(latestText) ?: run {
-            // Do not leave an old offer floating over a new/non-offer screen.
-            if (System.currentTimeMillis() - lastShownAt > 1800L) hideOverlay()
-            return
-        }
+        val trip = parseTrip(latestText) ?: return
         showResult(trip.first, trip.second, packageName)
     }
 
@@ -131,6 +132,8 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     private fun findPrice(text: String): Double? {
+        val labeled = priceByLabel.matcher(text)
+        if (labeled.find()) return labeled.group(1)?.replace(',', '.')?.toDoubleOrNull()
         val after = priceAfterNumber.matcher(text)
         if (after.find()) return after.group(1)?.replace(',', '.')?.toDoubleOrNull()
         val before = priceBeforeNumber.matcher(text)
