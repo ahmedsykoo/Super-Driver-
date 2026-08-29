@@ -1,0 +1,20 @@
+{
+  "appName": "Super Driver",
+  "home": "الرئيسية",
+  "settings": "الإعدادات",
+  "minPrice": "الحد الأدنى للسعر (ج.م/كم)",
+  "uberDiscount": "خصم Uber (%)",
+  "suitable": "مناسب",
+  "notSuitable": "غير مناسب",
+  "tripPrice": "سعر الرحلة",
+  "distance": "المسافة",
+  "pricePerKm": "السعر/كم",
+  "noData": "لا توجد بيانات",
+  "enable": "تفعيل الخدمة",
+  "accessibility": "خدمة الوصول",
+  "enableAccessibility": "تفعيل خدمة الوصول للتطبيق",
+  "save": "حفظ الإعدادات",
+  "language": "اللغة",
+  "ar": "العربية",
+  "en": "English"
+}

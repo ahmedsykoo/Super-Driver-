@@ -1,0 +1,20 @@
+{
+  "appName": "Super Driver",
+  "home": "Home",
+  "settings": "Settings",
+  "minPrice": "Minimum Price (EGP/km)",
+  "uberDiscount": "Uber Discount (%)",
+  "suitable": "Suitable",
+  "notSuitable": "Not Suitable",
+  "tripPrice": "Trip Price",
+  "distance": "Distance",
+  "pricePerKm": "Price/km",
+  "noData": "No Data",
+  "enable": "Enable Service",
+  "accessibility": "Accessibility Service",
+  "enableAccessibility": "Enable Accessibility Service for this app",
+  "save": "Save Settings",
+  "language": "Language",
+  "ar": "\u0627\u0644\u0639\u0631\u0628\u064a\u0629",
+  "en": "English"
+}

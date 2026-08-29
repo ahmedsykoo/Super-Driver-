@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Super Driver</string>
+    <string name="accessibility_service_label">Super Driver Accessibility Service</string>
+    <string name="accessibility_description">Reads visible trip information to calculate price per kilometer.</string>
+</resources>
