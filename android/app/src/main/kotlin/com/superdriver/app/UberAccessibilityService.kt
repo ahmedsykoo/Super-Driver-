@@ -83,9 +83,9 @@ class UberAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val packageName = event?.packageName?.toString() ?: return
-        if (!isSupportedRideApp(packageName) || !isMonitoringStored()) {
-            // Leaving Uber or disabling monitoring must remove only the trip result;
-            // the red/green status button is managed separately.
+        if (!isSupportedRideApp(packageName) || !isMonitoringStored() || !isAppEnabled(packageName)) {
+            // Leaving Uber, disabling monitoring, or disabling this app must remove
+            // only the trip result; the red/green status button is separate.
             hideOverlay()
             return
         }
@@ -109,6 +109,17 @@ class UberAccessibilityService : AccessibilityService() {
             packageName == "com.uber.client" ||
             packageName == "com.didiglobal.driver" ||
             packageName == "sinet.startup.inDriver"
+    }
+
+    private fun settingsKey(packageName: String): String = when (packageName) {
+        "sinet.startup.inDriver" -> "indrive"
+        "com.didiglobal.driver" -> "didi"
+        else -> "uber"
+    }
+
+    private fun isAppEnabled(packageName: String): Boolean {
+        val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+        return prefs.all["flutter.enabled_${settingsKey(packageName)}"] as? Boolean ?: true
     }
 
     private fun collectCurrentWindowText(): String {
@@ -146,14 +157,17 @@ class UberAccessibilityService : AccessibilityService() {
     private fun parseTrip(raw: String, packageName: String): Pair<Double, Double>? {
         val text = normalizeDigits(raw)
         val price = findPrice(text) ?: return null
+        val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+        val includePickupDistance = prefs.all["flutter.includePickupDistance_${settingsKey(packageName)}"] as? Boolean ?: false
         val distances = mutableListOf<Double>()
         val labeled = tripDistance.matcher(text)
         while (labeled.find()) labeled.group(1)?.replace(',', '.')?.toDoubleOrNull()?.let { distances.add(it) }
         val fallback = fallbackDistance.matcher(text)
         while (fallback.find()) fallback.group(1)?.replace(',', '.')?.toDoubleOrNull()?.let { distances.add(it) }
-        // inDrive commonly shows pickup distance first and trip distance second.
-        // Use only the trip distance (the last distance), never the pickup distance.
-        val distance = if (packageName == "sinet.startup.inDriver") distances.lastOrNull() else distances.firstOrNull()
+        // Uber, inDrive, and DiDi may expose pickup and trip distances together.
+        // By default use only the trip distance; the page option can include pickup distance.
+        val tripDistance = distances.lastOrNull()
+        val distance = if (includePickupDistance) distances.sum() else tripDistance
         if (price <= 0.0 || distance == null || distance <= 0.0) return null
         return Pair(price, distance)
     }
@@ -243,11 +257,9 @@ class UberAccessibilityService : AccessibilityService() {
         }
 
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
-        val settingsKey = when (packageName) {
-            "sinet.startup.inDriver" -> "indrive"
-            "com.didiglobal.driver" -> "didi"
-            else -> "uber"
-        }
+        val settingsKey = settingsKey(packageName)
+        val prefsKey = "flutter.includePickupDistance_$settingsKey"
+        val includePickupDistance = prefs.all[prefsKey] as? Boolean ?: false
         val minPrice = readDouble(
             prefs.all["flutter.minPrice_$settingsKey"] ?: prefs.all["flutter.minPrice"],
             7.5

@@ -179,26 +179,103 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           const SizedBox(height: 12), _row('سعر الرحلة', '${trip.price.toStringAsFixed(2)} EGP'), _row('المسافة', '${trip.distance.toStringAsFixed(1)} km'), _row('السعر/كم', '${trip.pricePerKm.toStringAsFixed(2)} EGP'), _row('بعد الخصم', '${trip.pricePerKmAfterDiscount(_discount).toStringAsFixed(2)} EGP'),
         ],
       ]))),
-      const SizedBox(height: 14),
-      Text('اختبار يدوي', style: Theme.of(context).textTheme.titleLarge),
-      _field(_price, 'سعر الرحلة'), _field(_distance, 'المسافة (كم)'),
-      FilledButton.icon(onPressed: _calculate, icon: const Icon(Icons.calculate), label: const Text('احسب الرحلة')),
       const SizedBox(height: 18),
-      Text('إعدادات التطبيقات', style: Theme.of(context).textTheme.titleLarge),
+      const Text('إعدادات التطبيقات', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
       const SizedBox(height: 8),
-      DropdownButtonFormField<String>(
-        value: _selectedApp,
-        decoration: const InputDecoration(labelText: 'التطبيق', border: OutlineInputBorder()),
-        items: const [DropdownMenuItem(value: 'Uber', child: Text('Uber')), DropdownMenuItem(value: 'inDrive', child: Text('inDrive')), DropdownMenuItem(value: 'DiDi', child: Text('DiDi'))],
-        onChanged: (value) { if (value != null) _selectApp(value); },
-      ),
-      _field(_min, 'الحد الأدنى / كم'), _field(_discountController, 'خصم الشركة %'),
-      FilledButton.tonalIcon(onPressed: _save, icon: const Icon(Icons.save), label: const Text('حفظ الإعدادات')),
+      _appCard('Uber', Icons.local_taxi, Colors.black87),
+      _appCard('inDrive', Icons.directions_car, Colors.green.shade700),
+      _appCard('DiDi', Icons.directions_car_filled, Colors.orange.shade800),
     ]);
   }
 
+  Widget _appCard(String app, IconData icon, Color color) => Card(
+    child: ListTile(
+      leading: CircleAvatar(backgroundColor: color, child: Icon(icon, color: Colors.white)),
+      title: Text('إعدادات $app', style: const TextStyle(fontWeight: FontWeight.bold)),
+      subtitle: const Text('الحد الأدنى، الخصم، ومسافة الوصول'),
+      trailing: const Icon(Icons.chevron_left),
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AppSettingsPage(appName: app))),
+    ),
+  );
+
   Widget _sectionTitle(String text) => Text(text, textAlign: TextAlign.center, style: const TextStyle(fontSize: 27, fontWeight: FontWeight.bold));
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+  }
   Widget _permissionRow(IconData icon, String title, bool enabled, VoidCallback onPressed) => Card(color: Theme.of(context).colorScheme.surfaceContainerHighest, child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [Row(children: [Icon(icon), const SizedBox(width: 10), Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w600))), Text(enabled ? '✅' : '❌', style: const TextStyle(fontSize: 20))]), const SizedBox(height: 8), SizedBox(width: double.infinity, child: FilledButton(onPressed: onPressed, child: Text(enabled ? 'تم التفعيل' : 'تفعيل')))])));
   Widget _field(TextEditingController c, String label) => Padding(padding: const EdgeInsets.only(top: 10, bottom: 8), child: TextField(controller: c, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: label, border: const OutlineInputBorder())));
   Widget _row(String label, String value) => Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(label), Text(value, style: const TextStyle(fontWeight: FontWeight.bold))]));
+}
+
+class AppSettingsPage extends StatefulWidget {
+  final String appName;
+  const AppSettingsPage({super.key, required this.appName});
+
+  @override
+  State<AppSettingsPage> createState() => _AppSettingsPageState();
+}
+
+class _AppSettingsPageState extends State<AppSettingsPage> {
+  late final String _key;
+  final _min = TextEditingController();
+  final _discount = TextEditingController();
+  bool _includePickupDistance = false;
+  bool _enabled = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _key = widget.appName.toLowerCase().replaceAll(' ', '_');
+    _load();
+  }
+
+  Future<void> _load() async {
+    final p = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _min.text = (p.getDouble('minPrice_$_key') ?? 7.5).toString();
+      _discount.text = (p.getDouble('discount_$_key') ?? 0).toString();
+      _includePickupDistance = p.getBool('includePickupDistance_$_key') ?? false;
+      _enabled = p.getBool('enabled_$_key') ?? true;
+    });
+  }
+
+  Future<void> _save() async {
+    final p = await SharedPreferences.getInstance();
+    final min = double.tryParse(_min.text.replaceAll(',', '.')) ?? 7.5;
+    final discount = (double.tryParse(_discount.text.replaceAll(',', '.')) ?? 0).clamp(0, 100).toDouble();
+    await p.setDouble('minPrice_$_key', min);
+    await p.setDouble('discount_$_key', discount);
+    await p.setBool('includePickupDistance_$_key', _includePickupDistance);
+    await p.setBool('enabled_$_key', _enabled);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم حفظ إعدادات التطبيق')));
+  }
+
+  @override
+  void dispose() {
+    _min.dispose();
+    _discount.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text('إعدادات ${widget.appName}')),
+    body: ListView(padding: const EdgeInsets.all(16), children: [
+      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
+        Text(widget.appName, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 12),
+        SwitchListTile(title: const Text('تحليل التطبيق'), subtitle: Text(_enabled ? 'مفعّل' : 'متوقف'), value: _enabled, onChanged: (v) => setState(() => _enabled = v)),
+        TextField(controller: _min, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'الحد الأدنى المقبول لكل كيلومتر', border: OutlineInputBorder())),
+        const SizedBox(height: 12),
+        TextField(controller: _discount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'خصم الشركة %', border: OutlineInputBorder())),
+        SwitchListTile(title: const Text('احتساب مسافة الوصول إلى العميل'), subtitle: const Text('متوقف افتراضياً؛ عند تشغيله تُضاف مسافة الوصول إلى مسافة الرحلة'), value: _includePickupDistance, onChanged: (v) => setState(() => _includePickupDistance = v)),
+        const SizedBox(height: 8),
+        SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: _save, icon: const Icon(Icons.save), label: const Text('حفظ الإعدادات'))),
+      ]))),
+    ],
+  );
 }
