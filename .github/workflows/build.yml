@@ -105,6 +105,17 @@ jobs:
             --no-pub \
             .
 
+          # flutter create generates a default widget_test.dart that expects
+          # a class named MyApp. This project uses SuperDriverApp, so the
+          # generated test is stale and must not be left in the source tree.
+          rm -f test/widget_test.dart
+
+          # Fail early if an obsolete generated test is still present.
+          if [[ -f test/widget_test.dart ]]; then
+            echo "::error::Stale test/widget_test.dart is still present."
+            exit 1
+          fi
+
           mkdir -p android/app/src/main/kotlin/com/superdriver/app
           mkdir -p android/app/src/main/res/xml
           mkdir -p android/app/src/main/res/values
@@ -459,6 +470,20 @@ jobs:
 
           p.write_text(s)
           PY
+
+      - name: Preflight Dart project
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f lib/main.dart
+
+          if grep -RIn --exclude-dir=.dart_tool --exclude-dir=build \
+              -E '\bMyApp\b' test 2>/dev/null; then
+            echo "::error::Obsolete MyApp reference found in tests."
+            exit 1
+          fi
 
       - name: Get dependencies
         working-directory: ${{ env.PROJECT_DIR }}
