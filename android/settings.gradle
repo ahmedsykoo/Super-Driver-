@@ -23,7 +23,9 @@ plugins {
 }
 
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    // Flutter's Gradle plugin adds the Flutter engine Maven repository at project level.
+    // Prefer project repositories so release builds can resolve Flutter engine artifacts.
+    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
     repositories {
         google()
         mavenCentral()
