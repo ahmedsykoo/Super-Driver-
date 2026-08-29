@@ -6,6 +6,9 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build APK
@@ -20,10 +23,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: "3.35.7"
           channel: stable
           cache: true
 
@@ -35,32 +40,123 @@ jobs:
         run: |
           set -e
 
-          ZIP_FILE=$(find . -maxdepth 2 -type f -name "*.zip" | head -n 1)
+          ZIP_FILE=$(find . -maxdepth 2 -type f -name "*.zip" \
+            -not -path "./.git/*" | head -n 1)
 
           if [ -n "$ZIP_FILE" ]; then
             echo "Found ZIP: $ZIP_FILE"
+
+            rm -rf extracted_project
             mkdir -p extracted_project
+
             unzip -o "$ZIP_FILE" -d extracted_project
 
-            PROJECT_DIR=$(find extracted_project -type f -name "pubspec.yaml" -printf '%h\n' | head -n 1)
+            PROJECT_DIR=$(find extracted_project \
+              -type f \
+              -name "pubspec.yaml" \
+              -printf '%h\n' | head -n 1)
 
             if [ -z "$PROJECT_DIR" ]; then
               echo "ERROR: Could not find pubspec.yaml"
               exit 1
             fi
-
-            echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           else
-            echo "No ZIP found. Looking for pubspec.yaml..."
+            echo "No ZIP found. Looking for Flutter project..."
 
-            PROJECT_DIR=$(find . -type f -name "pubspec.yaml" -not -path "./.git/*" -printf '%h\n' | head -n 1)
+            PROJECT_DIR=$(find . \
+              -type f \
+              -name "pubspec.yaml" \
+              -not -path "./.git/*" \
+              -not -path "./extracted_project/*" \
+              -printf '%h\n' | head -n 1)
 
             if [ -z "$PROJECT_DIR" ]; then
               echo "ERROR: Could not find Flutter project."
               exit 1
             fi
+          fi
 
-            echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "PROJECT_DIR=$PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      # ---------------------------------------------------------
+      # FORCE A KNOWN-GOOD ANDROID TOOLCHAIN
+      # ---------------------------------------------------------
+
+      - name: Fix Android Gradle configuration
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -e
+
+          echo "Checking Android configuration..."
+
+          test -f android/settings.gradle
+          test -f android/gradle.properties
+          test -f android/app/build.gradle
+
+          echo "---- BEFORE ----"
+          grep -nE \
+            'com.android.application|kotlin.android|dev.flutter.flutter-plugin-loader' \
+            android/settings.gradle || true
+
+          # Force AGP 8.6.1.
+          sed -i -E \
+            's/(id[[:space:]]+"com\.android\.application"[[:space:]]+version[[:space:]]+")[^"]+("[[:space:]]+apply[[:space:]]+false)/\18.6.1\2/' \
+            android/settings.gradle
+
+          # Force Kotlin 2.1.0.
+          sed -i -E \
+            's/(id[[:space:]]+"org\.jetbrains\.kotlin\.android"[[:space:]]+version[[:space:]]+")[^"]+("[[:space:]]+apply[[:space:]]+false)/\12.1.0\2/' \
+            android/settings.gradle
+
+          # Make sure Flutter plugin loader remains 1.0.0.
+          sed -i -E \
+            's/(id[[:space:]]+"dev\.flutter\.flutter-plugin-loader"[[:space:]]+version[[:space:]]+")[^"]+(")/\11.0.0\2/' \
+            android/settings.gradle
+
+          # Disable AGP 9 / built-in Kotlin migration flags.
+          touch android/gradle.properties
+
+          sed -i '/^android\.newDsl=/d' android/gradle.properties
+          sed -i '/^android\.builtInKotlin=/d' android/gradle.properties
+
+          cat >> android/gradle.properties <<'EOF'
+          android.newDsl=false
+          android.builtInKotlin=false
+          EOF
+
+          # Force Gradle 8.7 for AGP 8.6.1.
+          mkdir -p android/gradle/wrapper
+
+          cat > android/gradle/wrapper/gradle-wrapper.properties <<'EOF'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.7-bin.zip
+          networkTimeout=10000
+          validateDistributionUrl=true
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          EOF
+
+          echo "---- AFTER ----"
+
+          grep -nE \
+            'com.android.application|kotlin.android|dev.flutter.flutter-plugin-loader' \
+            android/settings.gradle
+
+          echo "---- gradle.properties ----"
+          cat android/gradle.properties
+
+          echo "---- Gradle wrapper ----"
+          cat android/gradle/wrapper/gradle-wrapper.properties
+
+          # HARD FAIL if AGP 9 somehow remains.
+          if grep -qE \
+            'com\.android\.application.*version[[:space:]]+"9\.' \
+            android/settings.gradle; then
+            echo "ERROR: AGP 9 is still present."
+            exit 1
           fi
 
       - name: Get dependencies
@@ -71,9 +167,29 @@ jobs:
         working-directory: ${{ env.PROJECT_DIR }}
         run: flutter analyze
 
+      - name: Run tests
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: flutter test
+
       - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}
         run: flutter build apk --release
+
+      - name: Verify APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -e
+
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+
+          if [ ! -s "$APK" ]; then
+            echo "ERROR: APK was not generated."
+            exit 1
+          fi
+
+          echo "APK successfully generated:"
+          ls -lh "$APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
