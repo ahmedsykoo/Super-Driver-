@@ -92,7 +92,7 @@ class UberAccessibilityService : AccessibilityService() {
 
         val text = collectCurrentWindowText()
         latestText = text
-        val trip = parseTrip(text)
+        val trip = parseTrip(text, packageName)
         if (trip != null) {
             mainHandler.removeCallbacks(clearStaleResult)
             showResult(trip.first, trip.second, packageName)
@@ -143,15 +143,17 @@ class UberAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun parseTrip(raw: String): Pair<Double, Double>? {
+    private fun parseTrip(raw: String, packageName: String): Pair<Double, Double>? {
         val text = normalizeDigits(raw)
         val price = findPrice(text) ?: return null
-        val distance = tripDistance.matcher(text).let { matcher ->
-            if (matcher.find()) matcher.group(1)?.replace(',', '.')?.toDoubleOrNull()
-            else fallbackDistance.matcher(text).let { fallback ->
-                if (fallback.find()) fallback.group(1)?.replace(',', '.')?.toDoubleOrNull() else null
-            }
-        }
+        val distances = mutableListOf<Double>()
+        val labeled = tripDistance.matcher(text)
+        while (labeled.find()) labeled.group(1)?.replace(',', '.')?.toDoubleOrNull()?.let { distances.add(it) }
+        val fallback = fallbackDistance.matcher(text)
+        while (fallback.find()) fallback.group(1)?.replace(',', '.')?.toDoubleOrNull()?.let { distances.add(it) }
+        // inDrive commonly shows pickup distance first and trip distance second.
+        // Use only the trip distance (the last distance), never the pickup distance.
+        val distance = if (packageName == "sinet.startup.inDriver") distances.lastOrNull() else distances.firstOrNull()
         if (price <= 0.0 || distance == null || distance <= 0.0) return null
         return Pair(price, distance)
     }
@@ -241,8 +243,19 @@ class UberAccessibilityService : AccessibilityService() {
         }
 
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
-        val minPrice = readDouble(prefs.all["flutter.minPrice"], 7.5).coerceAtLeast(0.0)
-        val discount = readDouble(prefs.all["flutter.uberDiscount"], 0.0).coerceIn(0.0, 100.0)
+        val settingsKey = when (packageName) {
+            "sinet.startup.inDriver" -> "indrive"
+            "com.didiglobal.driver" -> "didi"
+            else -> "uber"
+        }
+        val minPrice = readDouble(
+            prefs.all["flutter.minPrice_$settingsKey"] ?: prefs.all["flutter.minPrice"],
+            7.5
+        ).coerceAtLeast(0.0)
+        val discount = readDouble(
+            prefs.all["flutter.discount_$settingsKey"] ?: prefs.all["flutter.uberDiscount"],
+            0.0
+        ).coerceIn(0.0, 100.0)
 
         val gross = price / distance
         val net = gross * (1.0 - discount / 100.0)

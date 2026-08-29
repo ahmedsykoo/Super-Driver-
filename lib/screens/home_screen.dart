@@ -17,6 +17,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   AccessibilityStatus _status = const AccessibilityStatus(overlay: false, accessibility: false, monitoring: false);
   double _minPrice = 7.5;
   double _discount = 0;
+  String _selectedApp = 'Uber';
+  String get _appKey => _selectedApp.toLowerCase().replaceAll(' ', '_');
   final _price = TextEditingController();
   final _distance = TextEditingController();
   final _min = TextEditingController(text: '7.5');
@@ -34,8 +36,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final p = await SharedPreferences.getInstance();
     if (!mounted) return;
     setState(() {
-      _minPrice = p.getDouble('minPrice') ?? 7.5;
-      _discount = p.getDouble('uberDiscount') ?? 0;
+      _minPrice = p.getDouble('minPrice_uber') ?? p.getDouble('minPrice') ?? 7.5;
+      _discount = p.getDouble('discount_uber') ?? p.getDouble('uberDiscount') ?? 0;
       _min.text = _minPrice.toString();
       _discountController.text = _discount.toString();
     });
@@ -73,12 +75,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _refreshStatus();
   }
 
+  Future<void> _selectApp(String app) async {
+    final p = await SharedPreferences.getInstance();
+    final key = app.toLowerCase().replaceAll(' ', '_');
+    if (!mounted) return;
+    setState(() {
+      _selectedApp = app;
+      _minPrice = p.getDouble('minPrice_$key') ?? 7.5;
+      _discount = p.getDouble('discount_$key') ?? 0;
+      _min.text = _minPrice.toString();
+      _discountController.text = _discount.toString();
+    });
+  }
+
   Future<void> _save() async {
     final min = double.tryParse(_min.text.replaceAll(',', '.')) ?? 7.5;
     final discount = (double.tryParse(_discountController.text.replaceAll(',', '.')) ?? 0).clamp(0, 100).toDouble();
     final p = await SharedPreferences.getInstance();
-    await p.setDouble('minPrice', min);
-    await p.setDouble('uberDiscount', discount);
+    await p.setDouble('minPrice_$_appKey', min);
+    await p.setDouble('discount_$_appKey', discount);
+    if (_selectedApp == 'Uber') {
+      await p.setDouble('minPrice', min);
+      await p.setDouble('uberDiscount', discount);
+    }
     if (!mounted) return;
     setState(() { _minPrice = min; _discount = discount; });
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(isArabic ? 'تم حفظ الإعدادات' : 'Settings saved')));
@@ -165,7 +184,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _field(_price, 'سعر الرحلة'), _field(_distance, 'المسافة (كم)'),
       FilledButton.icon(onPressed: _calculate, icon: const Icon(Icons.calculate), label: const Text('احسب الرحلة')),
       const SizedBox(height: 18),
-      Text('الإعدادات', style: Theme.of(context).textTheme.titleLarge),
+      Text('إعدادات التطبيقات', style: Theme.of(context).textTheme.titleLarge),
+      const SizedBox(height: 8),
+      DropdownButtonFormField<String>(
+        value: _selectedApp,
+        decoration: const InputDecoration(labelText: 'التطبيق', border: OutlineInputBorder()),
+        items: const [DropdownMenuItem(value: 'Uber', child: Text('Uber')), DropdownMenuItem(value: 'inDrive', child: Text('inDrive')), DropdownMenuItem(value: 'DiDi', child: Text('DiDi'))],
+        onChanged: (value) { if (value != null) _selectApp(value); },
+      ),
       _field(_min, 'الحد الأدنى / كم'), _field(_discountController, 'خصم الشركة %'),
       FilledButton.tonalIcon(onPressed: _save, icon: const Icon(Icons.save), label: const Text('حفظ الإعدادات')),
     ]);
