@@ -14,19 +14,13 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   TripData? _trip;
-  AccessibilityStatus _status = const AccessibilityStatus(
-    overlay: false,
-    accessibility: false,
-    monitoring: false,
-  );
+  AccessibilityStatus _status = const AccessibilityStatus(overlay: false, accessibility: false, monitoring: false);
   double _minPrice = 7.5;
   double _discount = 0;
-
   final _price = TextEditingController();
   final _distance = TextEditingController();
   final _min = TextEditingController(text: '7.5');
   final _discountController = TextEditingController(text: '0');
-
   bool get isArabic => Localizations.localeOf(context).languageCode == 'ar';
 
   @override
@@ -53,50 +47,49 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (mounted) setState(() => _status = status);
   }
 
+  Future<void> _openOverlay() async {
+    await AccessibilityListener.openOverlaySettings();
+    if (mounted) await _refreshStatus();
+  }
+
+  Future<void> _openAccessibility() async {
+    await AccessibilityListener.openAccessibilitySettings();
+    if (mounted) await _refreshStatus();
+  }
+
+  Future<void> _toggleMonitoring() async {
+    if (!_status.overlay) {
+      await _openOverlay();
+      return;
+    }
+    if (!_status.accessibility) {
+      await _openAccessibility();
+      return;
+    }
+    final ok = await AccessibilityListener.setMonitoringEnabled(!_status.monitoring);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تعذر تغيير حالة المتابعة')));
+    }
+    await _refreshStatus();
+  }
+
   Future<void> _save() async {
     final min = double.tryParse(_min.text.replaceAll(',', '.')) ?? 7.5;
     final discount = (double.tryParse(_discountController.text.replaceAll(',', '.')) ?? 0).clamp(0, 100).toDouble();
     final p = await SharedPreferences.getInstance();
     await p.setDouble('minPrice', min);
     await p.setDouble('uberDiscount', discount);
-    if (mounted) {
-      setState(() {
-        _minPrice = min;
-        _discount = discount;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isArabic ? 'تم حفظ الإعدادات' : 'Settings saved')),
-      );
-    }
-  }
-
-  Future<void> _toggleMonitoring() async {
-    if (!_status.overlay) {
-      await AccessibilityListener.openOverlaySettings();
-      return;
-    }
-    if (!_status.accessibility) {
-      await AccessibilityListener.openAccessibilitySettings();
-      return;
-    }
-    final enabled = !_status.monitoring;
-    final ok = await AccessibilityListener.setMonitoringEnabled(enabled);
-    if (!ok && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isArabic ? 'أكمل التصريحين الأولين أولاً' : 'Complete the first two permissions first')),
-      );
-    }
-    await _refreshStatus();
+    if (!mounted) return;
+    setState(() { _minPrice = min; _discount = discount; });
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(isArabic ? 'تم حفظ الإعدادات' : 'Settings saved')));
   }
 
   Future<void> _readUber() async {
     final text = await AccessibilityListener.getScreenText();
     final price = PriceCalculator.extractPrice(text);
     final distance = PriceCalculator.extractDistance(text);
-    if (!mounted) return;
-    if (price != null && distance != null) {
-      setState(() => _trip = TripData(
-        price: price, distance: distance, timestamp: DateTime.now()));
+    if (mounted && price != null && distance != null) {
+      setState(() => _trip = TripData(price: price, distance: distance, timestamp: DateTime.now()));
     }
   }
 
@@ -118,183 +111,68 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _price.dispose();
-    _distance.dispose();
-    _min.dispose();
-    _discountController.dispose();
+    _price.dispose(); _distance.dispose(); _min.dispose(); _discountController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final trip = _trip;
-    final suitable = trip?.isSuitable(_minPrice, _discount) ?? false;
     return Directionality(
       textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Super Driver'),
-          centerTitle: true,
-          actions: [
-            PopupMenuButton<String>(
-              onSelected: (v) => widget.onLocaleChange(Locale(v)),
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'ar', child: Text('العربية')),
-                PopupMenuItem(value: 'en', child: Text('English')),
-              ],
-            ),
-          ],
+          title: const Text('Super Driver'), centerTitle: true,
+          actions: [PopupMenuButton<String>(onSelected: (v) => widget.onLocaleChange(Locale(v)), itemBuilder: (_) => const [PopupMenuItem(value: 'ar', child: Text('العربية')), PopupMenuItem(value: 'en', child: Text('English'))])],
         ),
-        body: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(18),
-                child: Column(
-                  children: [
-                    Text(
-                      isArabic ? 'حالة الخدمة' : 'Service status',
-                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 14),
-                    _permissionRow(
-                      icon: Icons.open_in_new,
-                      title: isArabic ? 'الظهور فوق التطبيقات' : 'Display over other apps',
-                      enabled: _status.overlay,
-                      button: isArabic ? 'تفعيل' : 'Enable',
-                      onPressed: _openOverlay,
-                    ),
-                    _permissionRow(
-                      icon: Icons.accessibility_new,
-                      title: isArabic ? 'اكتشاف الرحلات تلقائياً' : 'Automatic trip detection',
-                      enabled: _status.accessibility,
-                      button: isArabic ? 'تفعيل' : 'Enable',
-                      onPressed: _openAccessibility,
-                    ),
-                    _permissionRow(
-                      icon: Icons.radar,
-                      title: isArabic ? 'تشغيل متابعة الرحلات' : 'Enable trip monitoring',
-                      enabled: _status.monitoring,
-                      button: _status.monitoring
-                          ? (isArabic ? 'إيقاف المتابعة' : 'Stop monitoring')
-                          : (isArabic ? 'تشغيل المتابعة' : 'Start monitoring'),
-                      onPressed: _toggleMonitoring,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _status.ready
-                          ? (isArabic ? '✅ التطبيق جاهز للعمل فوق تطبيقات الرحلات' : '✅ Ready to work over ride apps')
-                          : (isArabic ? '⚠️ فعّل الثلاث خطوات من إعدادات الهاتف ثم ارجع للتطبيق' : '⚠️ Complete all three steps to start Super Driver'),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: _status.ready ? Colors.green.shade700 : Colors.orange.shade800,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      isArabic
-                          ? 'ملاحظة: الظهور فوق التطبيقات تصريح خاص، وقراءة الرحلات تتطلب تفعيل خدمة إمكانية الوصول يدويًا من إعدادات Android.'
-                          : 'Note: overlay is a special Android permission, and trip reading requires manually enabling Accessibility Service in Android Settings.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(18),
-                child: Column(
-                  children: [
-                    Text(
-                      trip == null
-                          ? (isArabic ? 'في انتظار الرحلة...' : 'Waiting for trip...')
-                          : (suitable ? (isArabic ? '✅ مناسب' : '✅ Suitable') : (isArabic ? '❌ غير مناسب' : '❌ Not Suitable')),
-                      style: TextStyle(
-                        fontSize: 27,
-                        fontWeight: FontWeight.bold,
-                        color: trip == null ? null : (suitable ? Colors.green : Colors.red),
-                      ),
-                    ),
-                    if (trip != null) ...[
-                      const SizedBox(height: 12),
-                      _row(isArabic ? 'سعر الرحلة' : 'Trip price', '${trip.price.toStringAsFixed(2)} EGP'),
-                      _row(isArabic ? 'المسافة' : 'Distance', '${trip.distance.toStringAsFixed(1)} km'),
-                      _row(isArabic ? 'السعر/كم' : 'Price/km', '${trip.pricePerKm.toStringAsFixed(2)} EGP'),
-                      _row(isArabic ? 'بعد الخصم' : 'After discount', '${trip.pricePerKmAfterDiscount(_discount).toStringAsFixed(2)} EGP'),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            Text(isArabic ? 'اختبار يدوي' : 'Manual test', style: Theme.of(context).textTheme.titleLarge),
-            _field(_price, isArabic ? 'سعر الرحلة' : 'Trip price'),
-            _field(_distance, isArabic ? 'المسافة (كم)' : 'Distance (km)'),
-            FilledButton.icon(onPressed: _calculate, icon: const Icon(Icons.calculate), label: Text(isArabic ? 'احسب الرحلة' : 'Calculate trip')),
-            const SizedBox(height: 20),
-            Text(isArabic ? 'الإعدادات' : 'Settings', style: Theme.of(context).textTheme.titleLarge),
-            _field(_min, isArabic ? 'الحد الأدنى / كم' : 'Minimum / km'),
-            _field(_discountController, isArabic ? 'خصم الشركة %' : 'Company discount %'),
-            FilledButton.tonalIcon(onPressed: _save, icon: const Icon(Icons.save), label: Text(isArabic ? 'حفظ الإعدادات' : 'Save settings')),
-          ],
-        ),
+        body: AnimatedSwitcher(duration: const Duration(milliseconds: 300), child: _status.ready ? _settingsPage() : _activationPage()),
       ),
     );
   }
 
-  Future<void> _openOverlay() async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(isArabic ? 'جارٍ فتح إعدادات الظهور فوق التطبيقات...' : 'Opening overlay settings...')),
-    );
-    final opened = await AccessibilityListener.openOverlaySettings();
-    if (!mounted) return;
-    if (!opened) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isArabic ? 'تعذر فتح إعدادات الظهور فوق التطبيقات. افتح إعدادات الهاتف يدويًا.' : 'Could not open overlay settings. Open Android Settings manually.')),
-      );
-    }
+  Widget _activationPage() {
+    return ListView(key: const ValueKey('activation'), padding: const EdgeInsets.all(16), children: [
+      _sectionTitle('تفعيل Super Driver'),
+      const SizedBox(height: 8),
+      const Text('فعّل الخطوات الثلاث بالترتيب، وبعد اكتمالها سينتقل التطبيق تلقائياً إلى الإعدادات.', textAlign: TextAlign.center),
+      const SizedBox(height: 18),
+      _permissionRow(Icons.open_in_new, 'الظهور فوق التطبيقات', _status.overlay, _openOverlay),
+      _permissionRow(Icons.accessibility_new, 'اكتشاف الرحلات تلقائياً', _status.accessibility, _openAccessibility),
+      _permissionRow(Icons.radar, 'تشغيل متابعة الرحلات', _status.monitoring, _toggleMonitoring),
+      const SizedBox(height: 12),
+      Text(_status.ready ? 'التطبيق جاهز' : 'أكمل التفعيل من إعدادات الهاتف ثم ارجع للتطبيق', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, color: _status.ready ? Colors.green : Colors.orange.shade800)),
+      const SizedBox(height: 8),
+      const Text('يجب تفعيل الصلاحيات يدوياً من Android. التطبيق لا يستطيع منحها تلقائياً.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.grey)),
+    ];
   }
 
-  Future<void> _openAccessibility() async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(isArabic ? 'جارٍ فتح إعدادات إمكانية الوصول...' : 'Opening Accessibility settings...')),
-    );
-    final opened = await AccessibilityListener.openAccessibilitySettings();
-    if (!mounted) return;
-    if (!opened) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isArabic ? 'تعذر فتح إعدادات إمكانية الوصول. افتح إعدادات الهاتف يدويًا.' : 'Could not open Accessibility settings. Open Android Settings manually.')),
-      );
-    }
-  }
-
-  Widget _permissionRow({required IconData icon, required String title, required bool enabled, required String button, required VoidCallback onPressed}) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)),
-      child: Column(
-        children: [
-          Row(children: [Icon(icon), const SizedBox(width: 10), Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w600))), Text(enabled ? '✅' : '❌', style: const TextStyle(fontSize: 20))]),
-          const SizedBox(height: 8),
-          SizedBox(width: double.infinity, child: FilledButton(onPressed: onPressed, child: Text(enabled && button == (isArabic ? 'تفعيل' : 'Enable') ? (isArabic ? 'تم التفعيل' : 'Enabled') : button))),
+  Widget _settingsPage() {
+    final trip = _trip;
+    final suitable = trip?.isSuitable(_minPrice, _discount) ?? false;
+    return ListView(key: const ValueKey('settings'), padding: const EdgeInsets.all(16), children: [
+      Card(child: Padding(padding: const EdgeInsets.all(18), child: Column(children: [
+        const Text('إعدادات Super Driver', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 12),
+        SwitchListTile(title: const Text('تشغيل متابعة الرحلات'), subtitle: Text(_status.monitoring ? 'المتابعة تعمل الآن' : 'المتابعة متوقفة'), value: _status.monitoring, onChanged: (_) => _toggleMonitoring(), secondary: Icon(_status.monitoring ? Icons.play_circle : Icons.pause_circle, color: _status.monitoring ? Colors.green : Colors.red)),
+      ]))),
+      Card(child: Padding(padding: const EdgeInsets.all(18), child: Column(children: [
+        Text(trip == null ? 'في انتظار الرحلة...' : (suitable ? '✅ مناسب' : '❌ غير مناسب'), style: TextStyle(fontSize: 27, fontWeight: FontWeight.bold, color: trip == null ? null : (suitable ? Colors.green : Colors.red))),
+        if (trip != null) ...[
+          const SizedBox(height: 12), _row('سعر الرحلة', '${trip.price.toStringAsFixed(2)} EGP'), _row('المسافة', '${trip.distance.toStringAsFixed(1)} km'), _row('السعر/كم', '${trip.pricePerKm.toStringAsFixed(2)} EGP'), _row('بعد الخصم', '${trip.pricePerKmAfterDiscount(_discount).toStringAsFixed(2)} EGP'),
         ],
-      ),
-    );
+      ]))),
+      const SizedBox(height: 14),
+      Text('اختبار يدوي', style: Theme.of(context).textTheme.titleLarge),
+      _field(_price, 'سعر الرحلة'), _field(_distance, 'المسافة (كم)'),
+      FilledButton.icon(onPressed: _calculate, icon: const Icon(Icons.calculate), label: const Text('احسب الرحلة')),
+      const SizedBox(height: 18),
+      Text('الإعدادات', style: Theme.of(context).textTheme.titleLarge),
+      _field(_min, 'الحد الأدنى / كم'), _field(_discountController, 'خصم الشركة %'),
+      FilledButton.tonalIcon(onPressed: _save, icon: const Icon(Icons.save), label: const Text('حفظ الإعدادات')),
+    ];
   }
 
-  Widget _field(TextEditingController c, String label) => Padding(
-    padding: const EdgeInsets.only(top: 10, bottom: 8),
-    child: TextField(controller: c, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: label, border: const OutlineInputBorder())),
-  );
-
-  Widget _row(String label, String value) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 5),
-    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(label), Text(value, style: const TextStyle(fontWeight: FontWeight.bold))]),
-  );
+  Widget _sectionTitle(String text) => Text(text, textAlign: TextAlign.center, style: const TextStyle(fontSize: 27, fontWeight: FontWeight.bold));
+  Widget _permissionRow(IconData icon, String title, bool enabled, VoidCallback onPressed) => Card(color: Theme.of(context).colorScheme.surfaceContainerHighest, child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [Row(children: [Icon(icon), const SizedBox(width: 10), Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w600))), Text(enabled ? '✅' : '❌', style: const TextStyle(fontSize: 20))]), const SizedBox(height: 8), SizedBox(width: double.infinity, child: FilledButton(onPressed: onPressed, child: Text(enabled ? 'تم التفعيل' : 'تفعيل')))])));
+  Widget _field(TextEditingController c, String label) => Padding(padding: const EdgeInsets.only(top: 10, bottom: 8), child: TextField(controller: c, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: label, border: const OutlineInputBorder())));
+  Widget _row(String label, String value) => Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(label), Text(value, style: const TextStyle(fontWeight: FontWeight.bold))]));
 }

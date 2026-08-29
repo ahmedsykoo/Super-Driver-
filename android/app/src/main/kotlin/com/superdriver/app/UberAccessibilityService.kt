@@ -5,6 +5,7 @@ import android.accessibilityservice.AccessibilityServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.provider.Settings
 import android.view.Gravity
@@ -30,6 +31,7 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     private var overlayView: View? = null
+    private var statusOverlayView: TextView? = null
     private var windowManager: WindowManager? = null
     private var lastSignature = ""
     private var lastShownAt = 0L
@@ -158,7 +160,50 @@ class UberAccessibilityService : AccessibilityService() {
         getSharedPreferences("super_driver", MODE_PRIVATE).getBoolean("monitoring_enabled", false)
 
     private fun applyMonitoringState(enabled: Boolean) {
-        if (!enabled) hideOverlay()
+        showStatusOverlay(enabled)
+        if (!enabled) overlayView?.let { view ->
+            try {
+                if (view.parent != null) windowManager?.removeView(view)
+            } catch (_: Exception) { }
+            overlayView = null
+        }
+    }
+
+    private fun showStatusOverlay(enabled: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) return
+        val view = statusOverlayView ?: TextView(this).apply {
+            text = "SD"
+            textSize = 15f
+            gravity = Gravity.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            setPadding(18, 14, 18, 14)
+            elevation = 12f
+        }.also { statusOverlayView = it }
+        view.text = if (enabled) "SD ✓" else "SD"
+        view.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(if (enabled) Color.rgb(20, 150, 75) else Color.rgb(205, 45, 45))
+        }
+        if (view.parent == null) {
+            val windowType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                windowType,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                y = 180
+                x = 18
+            }
+            try {
+                windowManager?.addView(view, params)
+            } catch (_: Exception) {
+                statusOverlayView = null
+            }
+        }
     }
 
     private fun showResult(price: Double, distance: Double, packageName: String) {
@@ -273,6 +318,12 @@ class UberAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         hideOverlay()
+        statusOverlayView?.let { view ->
+            try {
+                if (view.parent != null) windowManager?.removeView(view)
+            } catch (_: Exception) { }
+        }
+        statusOverlayView = null
         latestText = ""
         instance = null
         super.onDestroy()
