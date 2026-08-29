@@ -276,6 +276,6 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
         const SizedBox(height: 8),
         SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: _save, icon: const Icon(Icons.save), label: const Text('حفظ الإعدادات'))),
       ]))),
-    ],
+    ]),
   );
 }
