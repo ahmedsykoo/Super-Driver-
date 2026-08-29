@@ -6,278 +6,251 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build APK
     runs-on: ubuntu-latest
 
     steps:
-
-      # ==========================================
-      # 1. Checkout repository
-      # ==========================================
+      # --------------------------------------------------
+      # 1. Checkout
+      # --------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v4
 
-
-      # ==========================================
-      # 2. Setup Java
-      # ==========================================
+      # --------------------------------------------------
+      # 2. Java 17
+      # --------------------------------------------------
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-
-      # ==========================================
-      # 3. Setup Flutter
-      # ==========================================
+      # --------------------------------------------------
+      # 3. Flutter
+      # --------------------------------------------------
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-
-      # ==========================================
-      # 4. Show Flutter and Dart versions
-      # ==========================================
+      # --------------------------------------------------
+      # 4. Flutter version
+      # --------------------------------------------------
       - name: Flutter version
         run: |
           flutter --version
           dart --version
 
-
-      # ==========================================
-      # 5. Find and extract Flutter project
-      # ==========================================
-      - name: Find and extract Flutter project
+      # --------------------------------------------------
+      # 5. Find Flutter project
+      # --------------------------------------------------
+      - name: Find Flutter project
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
-          echo "======================================"
           echo "Searching for Flutter project..."
-          echo "======================================"
 
-          mkdir -p extracted_project
+          PROJECT_DIR=""
 
-          ZIP_FILE=$(find . \
-            -type f \
-            -name "*.zip" \
-            -not -path "./.git/*" \
-            | head -n 1)
-
-          if [ -n "$ZIP_FILE" ]; then
-
-            echo "Found ZIP:"
-            echo "$ZIP_FILE"
-
-            echo ""
-            echo "Extracting ZIP..."
-
-            unzip -o "$ZIP_FILE" -d extracted_project
-
-          else
-
-            echo "No ZIP file found."
-            echo "Searching repository directly..."
-
-            find . \
-              -type f \
-              -name "pubspec.yaml" \
-              -not -path "./.git/*" \
-              -print
-
-            PROJECT_DIRECT=$(find . \
-              -type f \
-              -name "pubspec.yaml" \
-              -not -path "./.git/*" \
-              -printf '%h\n' \
-              | head -n 1)
-
-            if [ -n "$PROJECT_DIRECT" ]; then
-              mkdir -p extracted_project
-              cp -R "$PROJECT_DIRECT"/. extracted_project/
-            fi
-
-          fi
-
-
-          # ======================================
-          # Find pubspec.yaml
-          # ======================================
-
-          echo ""
-          echo "Searching for pubspec.yaml..."
-
-          PROJECT_DIR=$(find extracted_project \
+          # First: look for pubspec.yaml in repository
+          PROJECT_DIR=$(find . \
             -type f \
             -name "pubspec.yaml" \
-            -not -path "*/.git/*" \
+            -not -path "./.git/*" \
+            -not -path "./extracted_project/*" \
             -printf '%h\n' \
-            | head -n 1)
+            | head -n 1 || true)
 
-
+          # Second: look inside ZIP files
           if [ -z "$PROJECT_DIR" ]; then
-
-            echo ""
-            echo "ERROR: Flutter project not found."
-            echo ""
-            echo "Files found:"
-            find extracted_project \
-              -maxdepth 5 \
+            ZIP_FILE=$(find . \
+              -maxdepth 3 \
               -type f \
-              | sort \
-              | head -200
+              -name "*.zip" \
+              -not -path "./.git/*" \
+              | head -n 1 || true)
 
-            exit 1
+            if [ -n "$ZIP_FILE" ]; then
+              echo "Found ZIP: $ZIP_FILE"
 
+              rm -rf extracted_project
+              mkdir -p extracted_project
+
+              unzip -o "$ZIP_FILE" -d extracted_project
+
+              PROJECT_DIR=$(find extracted_project \
+                -type f \
+                -name "pubspec.yaml" \
+                -printf '%h\n' \
+                | head -n 1 || true)
+            fi
           fi
 
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: Flutter project was not found."
+            echo "Repository contents:"
+            find . -maxdepth 3 -type f | sort | head -n 300
+            exit 1
+          fi
 
-          echo ""
-          echo "======================================"
+          PROJECT_DIR="${PROJECT_DIR#./}"
+
           echo "Flutter project found:"
           echo "$PROJECT_DIR"
-          echo "======================================"
-
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-
-      # ==========================================
-      # 6. Show project structure
-      # ==========================================
-      - name: Show project structure
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: |
-          echo "Project directory:"
-          pwd
-
-          echo ""
-          echo "Project files:"
-
-          find . \
-            -maxdepth 4 \
-            -type f \
-            | sort \
-            | head -250
-
-
-      # ==========================================
-      # 7. Get dependencies
-      # ==========================================
-      - name: Get dependencies
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: |
-          flutter pub get
-
-
-      # ==========================================
-      # 8. Fix Android Gradle configuration
-      # ==========================================
-      - name: Fix Android Gradle configuration
-        working-directory: ${{ env.PROJECT_DIR }}
+      # --------------------------------------------------
+      # 6. Check project structure
+      # --------------------------------------------------
+      - name: Check project structure
         shell: bash
         run: |
+          set -euo pipefail
 
-          set -e
+          echo "PROJECT_DIR=$PROJECT_DIR"
 
-          echo "======================================"
-          echo "Checking Android Gradle configuration"
-          echo "======================================"
+          test -f "$PROJECT_DIR/pubspec.yaml"
 
-          GRADLE_PROPERTIES="android/gradle.properties"
+          if [ ! -d "$PROJECT_DIR/android" ]; then
+            echo "ERROR: Android folder not found."
+            exit 1
+          fi
 
-          mkdir -p android
+          if [ ! -f "$PROJECT_DIR/android/settings.gradle" ] && \
+             [ ! -f "$PROJECT_DIR/android/settings.gradle.kts" ]; then
+            echo "ERROR: Android settings file not found."
+            exit 1
+          fi
+
+          echo "Project structure OK."
+
+      # --------------------------------------------------
+      # 7. Fix Android Gradle configuration
+      # --------------------------------------------------
+      - name: Fix Android Gradle configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ANDROID_DIR="$PROJECT_DIR/android"
+          GRADLE_PROPERTIES="$ANDROID_DIR/gradle.properties"
+
+          echo "Android directory:"
+          echo "$ANDROID_DIR"
 
           touch "$GRADLE_PROPERTIES"
 
-
-          # Remove any previous value
-          sed -i \
-            '/^[[:space:]]*android\.newDsl[[:space:]]*=/d' \
-            "$GRADLE_PROPERTIES"
-
-
-          # Disable AGP 9 new DSL temporarily
-          echo "android.newDsl=false" >> "$GRADLE_PROPERTIES"
-
+          # Prevent Flutter/AGP 9 DSL migration from breaking
+          # older Flutter Android projects.
+          if grep -q "^android.newDsl=" "$GRADLE_PROPERTIES"; then
+            sed -i 's/^android.newDsl=.*/android.newDsl=false/' "$GRADLE_PROPERTIES"
+          else
+            echo "android.newDsl=false" >> "$GRADLE_PROPERTIES"
+          fi
 
           echo ""
-          echo "Current android/gradle.properties:"
-          echo "--------------------------------------"
-
+          echo "Current gradle.properties:"
           cat "$GRADLE_PROPERTIES"
 
-          echo "--------------------------------------"
+          echo ""
+          echo "Checking Android Gradle files..."
 
+          if [ -f "$ANDROID_DIR/app/build.gradle" ]; then
+            echo "Found app/build.gradle"
+          fi
 
-      # ==========================================
-      # 9. Check Android Gradle files
-      # ==========================================
-      - name: Check Android Gradle files
+          if [ -f "$ANDROID_DIR/app/build.gradle.kts" ]; then
+            echo "Found app/build.gradle.kts"
+          fi
+
+          if [ -f "$ANDROID_DIR/settings.gradle" ]; then
+            echo "Found settings.gradle"
+          fi
+
+          if [ -f "$ANDROID_DIR/settings.gradle.kts" ]; then
+            echo "Found settings.gradle.kts"
+          fi
+
+      # --------------------------------------------------
+      # 8. Get dependencies
+      # --------------------------------------------------
+      - name: Get dependencies
         working-directory: ${{ env.PROJECT_DIR }}
-        shell: bash
         run: |
+          flutter clean
+          flutter pub get
 
-          echo "======================================"
-          echo "Android Gradle files"
-          echo "======================================"
-
-          echo ""
-          echo "settings.gradle:"
-          if [ -f "android/settings.gradle" ]; then
-            cat android/settings.gradle
-          else
-            echo "settings.gradle not found"
-          fi
-
-
-          echo ""
-          echo "settings.gradle.kts:"
-          if [ -f "android/settings.gradle.kts" ]; then
-            cat android/settings.gradle.kts
-          else
-            echo "settings.gradle.kts not found"
-          fi
-
-
-          echo ""
-          echo "app/build.gradle:"
-          if [ -f "android/app/build.gradle" ]; then
-            cat android/app/build.gradle
-          else
-            echo "app/build.gradle not found"
-          fi
-
-
-          echo ""
-          echo "app/build.gradle.kts:"
-          if [ -f "android/app/build.gradle.kts" ]; then
-            cat android/app/build.gradle.kts
-          else
-            echo "app/build.gradle.kts not found"
-          fi
-
-
-      # ==========================================
-      # 10. Analyze project
-      # ==========================================
+      # --------------------------------------------------
+      # 9. Analyze project
+      # --------------------------------------------------
       - name: Analyze project
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           flutter analyze
 
-
-      # ==========================================
-      # 11. Run tests if tests exist
-      # ==========================================
+      # --------------------------------------------------
+      # 10. Run tests
+      # --------------------------------------------------
       - name: Run tests
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
+          set -euo pipefail
 
-          if [
+          if [ -d "test" ] && find test -type f -name "*_test.dart" | grep -q .; then
+            echo "Tests found. Running Flutter tests..."
+            flutter test
+          else
+            echo "No Flutter tests found. Skipping tests."
+          fi
+
+      # --------------------------------------------------
+      # 11. Build APK
+      # --------------------------------------------------
+      - name: Build APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          flutter build apk --release
+
+      # --------------------------------------------------
+      # 12. Verify APK
+      # --------------------------------------------------
+      - name: Verify APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+
+          if [ ! -f "$APK_PATH" ]; then
+            echo "ERROR: APK was not generated."
+            echo ""
+            echo "Available APK files:"
+            find build -type f -name "*.apk" -print || true
+            exit 1
+          fi
+
+          echo "APK successfully generated:"
+          ls -lh "$APK_PATH"
+
+      # --------------------------------------------------
+      # 13. Upload APK
+      # --------------------------------------------------
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: super-driver-release
+          path: ${{ env.PROJECT_DIR }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
