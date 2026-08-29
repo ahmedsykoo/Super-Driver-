@@ -2,7 +2,8 @@ name: Build Super Driver APK
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -12,497 +13,496 @@ jobs:
   build:
     name: Build APK
     runs-on: ubuntu-latest
-    timeout-minutes: 30
 
     steps:
+
+      # ============================================================
+      # 1. Checkout
+      # ============================================================
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Do NOT enable Gradle caching in setup-java here.
-      # The project is packaged inside a ZIP, so there are no Gradle files
-      # at checkout time. That was the reason setup-java was failing first.
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
+      # ============================================================
+      # 2. Java 17
+      # ============================================================
+      - name: Set up Java
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
 
-      # Pin the toolchain. Flutter 3.47.x was pulling the project toward AGP 9,
-      # which is exactly where the old Android files started failing.
+      # ============================================================
+      # 3. Flutter
+      # ============================================================
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.24.5"
           channel: stable
           cache: true
 
-      - name: Locate and extract Flutter project
+      - name: Flutter version
+        run: |
+          flutter --version
+          dart --version
+
+      # ============================================================
+      # 4. Find and extract Flutter project
+      # ============================================================
+      - name: Find and extract Flutter project
         shell: bash
         run: |
           set -euo pipefail
 
-          ZIP_FILE="$(find . -maxdepth 3 -type f -name '*.zip' | head -n 1)"
+          echo "========================================"
+          echo "Searching for Flutter project"
+          echo "========================================"
 
-          if [[ -n "$ZIP_FILE" ]]; then
-            echo "Using ZIP: $ZIP_FILE"
+          ZIP_FILE=""
+
+          while IFS= read -r file; do
+            ZIP_FILE="$file"
+            break
+          done < <(
+            find . \
+              -maxdepth 3 \
+              -type f \
+              -name "*.zip" \
+              -not -path "./.git/*" \
+              | sort
+          )
+
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Found ZIP:"
+            echo "$ZIP_FILE"
+
             rm -rf extracted_project
             mkdir -p extracted_project
-            unzip -q -o "$ZIP_FILE" -d extracted_project
+
+            unzip -oq "$ZIP_FILE" -d extracted_project
+
+            PROJECT_DIR="$(
+              find extracted_project \
+                -type f \
+                -name "pubspec.yaml" \
+                -not -path "*/.dart_tool/*" \
+                -printf '%h\n' \
+                | head -n 1
+            )"
+
           else
-            echo "No ZIP found. Searching repository for pubspec.yaml."
+            echo "No ZIP file found."
+
+            PROJECT_DIR="$(
+              find . \
+                -type f \
+                -name "pubspec.yaml" \
+                -not -path "./.git/*" \
+                -not -path "*/.dart_tool/*" \
+                -printf '%h\n' \
+                | head -n 1
+            )
           fi
 
-          PROJECT_DIR="$(find . -type f -name pubspec.yaml -not -path './.git/*' -printf '%h\n' | head -n 1)"
-
-          if [[ -z "$PROJECT_DIR" ]]; then
-            echo "::error::pubspec.yaml was not found."
+          if [ -z "${PROJECT_DIR:-}" ]; then
+            echo "ERROR: Flutter project was not found."
             exit 1
           fi
 
-          PROJECT_DIR="$(realpath "$PROJECT_DIR")"
+          PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
+
+          echo ""
+          echo "Flutter project:"
+          echo "$PROJECT_DIR"
+          echo ""
+
+          if [ ! -f "$PROJECT_DIR/pubspec.yaml" ]; then
+            echo "ERROR: pubspec.yaml is missing."
+            exit 1
+          fi
+
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Project: $PROJECT_DIR"
 
-      - name: Repair Dart dependencies
+      # ============================================================
+      # 5. Check project
+      # ============================================================
+      - name: Check Flutter project
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
           set -euo pipefail
 
-          python3 - <<'PY'
-          from pathlib import Path
+          echo "========================================"
+          echo "Flutter project structure"
+          echo "========================================"
 
-          p = Path("pubspec.yaml")
-          s = p.read_text()
+          pwd
 
-          # The source used flutter_linter, which is not the Flutter lint package.
-          s = s.replace(
-              "  flutter_linter: ^3.0.0",
-              "  flutter_lints: ^3.0.2"
-          )
+          echo ""
+          echo "pubspec.yaml:"
+          test -f pubspec.yaml
 
-          # These packages are not needed by the current Dart source and add
-          # unnecessary Android plugin risk. Accessibility is implemented natively.
-          for line in [
-              "  permission_handler: ^11.4.4\n",
-              "  accessibility_service: ^0.0.1\n",
-              "  flutter_service_binding: ^1.0.0\n",
-          ]:
-              s = s.replace(line, "")
-
-          p.write_text(s)
-          PY
-
-      - name: Rebuild Android host configuration
-        working-directory: ${{ env.PROJECT_DIR }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          # The source ZIP has an incomplete/mixed Android Gradle setup.
-          # Regenerate the Android host with the pinned Flutter SDK instead of
-          # repeatedly patching individual Gradle errors.
-          rm -rf android_custom_backup
-          if [[ -d android ]]; then
-            cp -a android android_custom_backup
-          fi
-          rm -rf android
-
-          flutter create \
-            --platforms=android \
-            --org com.superdriver \
-            --project-name super_driver \
-            --no-pub \
-            .
-
-          mkdir -p android/app/src/main/kotlin/com/superdriver/app
-          mkdir -p android/app/src/main/res/xml
-          mkdir -p android/app/src/main/res/values
-
-          cat > android/app/src/main/AndroidManifest.xml <<'EOF'
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-
-    <application
-        android:label="Super Driver"
-        android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="false">
-
-        <activity
-            android:name=".MainActivity"
-            android:exported="true"
-            android:launchMode="singleTop"
-            android:theme="@style/LaunchTheme"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
-            android:hardwareAccelerated="true"
-            android:windowSoftInputMode="adjustResize">
-
-            <meta-data
-                android:name="io.flutter.embedding.android.NormalTheme"
-                android:resource="@style/NormalTheme" />
-
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-
-        <service
-            android:name=".UberAccessibilityService"
-            android:label="Super Driver"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:exported="false">
-
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/accessibility_service_config" />
-        </service>
-
-        <meta-data
-            android:name="flutterEmbedding"
-            android:value="2" />
-    </application>
-</manifest>
-EOF
-
-          cat > android/app/src/main/res/xml/accessibility_service_config.xml <<'EOF'
-<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
-    android:accessibilityFeedbackType="feedbackGeneric"
-    android:notificationTimeout="100"
-    android:canRetrieveWindowContent="true"
-    android:description="@string/accessibility_service_description"
-    android:accessibilityFlags="flagReportViewIds" />
-EOF
-
-          cat > android/app/src/main/res/values/strings.xml <<'EOF'
-<resources>
-    <string name="app_name">Super Driver</string>
-    <string name="accessibility_service_description">Reads Uber trip offer text and shows the Super Driver result.</string>
-</resources>
-EOF
-
-          # IMPORTANT: settings.gradle reads local.properties immediately.
-          # Create it now, before any Gradle/wrapper command can run.
-          FLUTTER_SDK="$(dirname "$(dirname "$(command -v flutter)")")"
-          ANDROID_SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Android/Sdk}}"
-
-          if [[ ! -d "$ANDROID_SDK" ]]; then
-            echo "::error::Android SDK was not found at $ANDROID_SDK"
+          echo ""
+          echo "Android directory:"
+          if [ -d android ]; then
+            echo "FOUND"
+          else
+            echo "ERROR: android directory is missing."
             exit 1
           fi
+
+          echo ""
+          echo "Android files:"
+          find android -maxdepth 3 -type f | sort | head -100 || true
+
+      # ============================================================
+      # 6. Prepare Android local.properties
+      # ============================================================
+      - name: Prepare Android local properties
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p android
 
           cat > android/local.properties <<EOF
-sdk.dir=$ANDROID_SDK
-flutter.sdk=$FLUTTER_SDK
-EOF
+          sdk.dir=$ANDROID_SDK_ROOT
+          flutter.sdk=$FLUTTER_ROOT
+          EOF
 
           echo "Created android/local.properties"
+
           cat android/local.properties
 
-          # Ensure the wrapper exists before any Gradle task is called.
-          if [[ ! -f android/gradlew ]]; then
-            echo "Gradle wrapper is missing. Generating it with Flutter..."
-            (
-              cd android
-              gradle wrapper
-            )
+      # ============================================================
+      # 7. Configure Gradle / Android
+      # ============================================================
+      - name: Configure Android Gradle
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p android
+
+          touch android/gradle.properties
+
+          if grep -q '^android.newDsl=' android/gradle.properties; then
+            sed -i 's/^android.newDsl=.*/android.newDsl=false/' android/gradle.properties
+          else
+            echo 'android.newDsl=false' >> android/gradle.properties
           fi
 
-          chmod +x android/gradlew
+          echo ""
+          echo "========================================"
+          echo "gradle.properties"
+          echo "========================================"
 
-          cat > android/app/src/main/kotlin/com/superdriver/app/MainActivity.kt <<'EOF'
-package com.superdriver.app
+          cat android/gradle.properties
 
-import android.content.Intent
-import android.net.Uri
-import android.provider.Settings
-import io.flutter.embedding.android.FlutterActivity
-import io.flutter.embedding.engine.FlutterEngine
-import io.flutter.plugin.common.MethodChannel
+      # ============================================================
+      # 8. Install Gradle 8.14
+      # ============================================================
+      - name: Install Gradle
+        shell: bash
+        run: |
+          set -euo pipefail
 
-class MainActivity : FlutterActivity() {
-    private val channelName = "com.superdriver/accessibility"
+          GRADLE_VERSION="8.14"
+          GRADLE_HOME="$RUNNER_TEMP/gradle-$GRADLE_VERSION"
 
-    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-        super.configureFlutterEngine(flutterEngine)
+          if [ ! -x "$GRADLE_HOME/bin/gradle" ]; then
+            echo "Downloading Gradle $GRADLE_VERSION..."
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "enableAccessibility" -> {
-                        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                        result.success(true)
-                    }
+            curl -L --fail --retry 3 \
+              -o "$RUNNER_TEMP/gradle.zip" \
+              "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip"
 
-                    "openOverlaySettings" -> {
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                            startActivity(
-                                Intent(
-                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    Uri.parse("package:$packageName")
-                                )
-                            )
-                        }
-                        result.success(true)
-                    }
+            rm -rf "$GRADLE_HOME"
 
-                    else -> result.notImplemented()
-                }
+            mkdir -p "$GRADLE_HOME"
+
+            unzip -q \
+              "$RUNNER_TEMP/gradle.zip" \
+              -d "$RUNNER_TEMP"
+
+            mv \
+              "$RUNNER_TEMP/gradle-${GRADLE_VERSION}" \
+              "$GRADLE_HOME"
+          fi
+
+          echo "GRADLE_HOME=$GRADLE_HOME" >> "$GITHUB_ENV"
+          echo "$GRADLE_HOME/bin" >> "$GITHUB_PATH"
+
+          "$GRADLE_HOME/bin/gradle" --version
+
+      # ============================================================
+      # 9. Fix / create Gradle wrapper
+      # ============================================================
+      - name: Fix Gradle wrapper
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "========================================"
+          echo "Checking Gradle Wrapper"
+          echo "========================================"
+
+          mkdir -p android/gradle/wrapper
+
+          cd android
+
+          if [ ! -f gradlew ]; then
+            echo "Gradle wrapper is missing."
+            echo "Generating wrapper using Gradle 8.14..."
+
+            gradle wrapper \
+              --gradle-version 8.14 \
+              --distribution-type bin
+          else
+            echo "gradlew exists."
+          fi
+
+          chmod +x gradlew
+
+          if [ ! -f gradle/wrapper/gradle-wrapper.properties ]; then
+            echo "ERROR: gradle-wrapper.properties was not generated."
+            exit 1
+          fi
+
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "ERROR: gradle-wrapper.jar was not generated."
+            exit 1
+          fi
+
+          echo ""
+          echo "========================================"
+          echo "Gradle wrapper configuration"
+          echo "========================================"
+
+          cat gradle/wrapper/gradle-wrapper.properties
+
+          echo ""
+          echo "Gradle version:"
+          ./gradlew --version
+
+      # ============================================================
+      # 10. Validate Android Gradle files
+      # ============================================================
+      - name: Check Android Gradle files
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "========================================"
+          echo "Checking Android Gradle files"
+          echo "========================================"
+
+          test -f android/settings.gradle \
+            || test -f android/settings.gradle.kts \
+            || {
+              echo "ERROR: Android settings file not found."
+              exit 1
             }
-    }
-}
-EOF
 
-          cat > android/app/src/main/kotlin/com/superdriver/app/UberAccessibilityService.kt <<'EOF'
-package com.superdriver.app
-
-import android.accessibilityservice.AccessibilityService
-import android.graphics.Color
-import android.graphics.PixelFormat
-import android.graphics.Typeface
-import android.os.Build
-import android.provider.Settings
-import android.view.Gravity
-import android.view.View
-import android.view.WindowManager
-import android.view.accessibility.AccessibilityEvent
-import android.view.accessibility.AccessibilityNodeInfo
-import android.widget.TextView
-import java.util.Locale
-import java.util.regex.Pattern
-
-class UberAccessibilityService : AccessibilityService() {
-
-    private var overlayView: TextView? = null
-    private var windowManager: WindowManager? = null
-
-    private val pricePattern = Pattern.compile(
-        """(?<!\d)(\d+(?:[.,]\d+)?)\s*(?:ج\s*\.?\s*م|ج\.م|EGP)""",
-        Pattern.CASE_INSENSITIVE
-    )
-
-    private val distancePattern = Pattern.compile(
-        """\(?\s*(\d+(?:[.,]\d+)?)\s*\)?\s*(?:كلم|كم|km)\b""",
-        Pattern.CASE_INSENSITIVE
-    )
-
-    override fun onServiceConnected() {
-        super.onServiceConnected()
-        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-    }
-
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event == null) return
-
-        val packageName = event.packageName?.toString() ?: return
-
-        // Uber only for now.
-        if (packageName != "com.ubercab.driver" && packageName != "com.uber.client") {
-            return
-        }
-
-        val root = rootInActiveWindow ?: return
-        val text = StringBuilder()
-        collectText(root, text)
-
-        val trip = parseTrip(text.toString()) ?: return
-        showResult(trip.first, trip.second)
-    }
-
-    private fun collectText(node: AccessibilityNodeInfo, out: StringBuilder) {
-        node.text?.let {
-            if (it.isNotBlank()) out.append(it).append(' ')
-        }
-
-        for (i in 0 until node.childCount) {
-            node.getChild(i)?.let { child ->
-                collectText(child, out)
-                child.recycle()
+          test -f android/build.gradle \
+            || test -f android/build.gradle.kts \
+            || {
+              echo "ERROR: Android build.gradle file not found."
+              exit 1
             }
-        }
-    }
 
-    private fun parseTrip(text: String): Pair<Double, Double>? {
-        val priceMatch = pricePattern.matcher(text)
-        val distanceMatch = distancePattern.matcher(text)
-
-        if (!priceMatch.find() || !distanceMatch.find()) return null
-
-        val price = priceMatch.group(1)
-            .replace(',', '.')
-            .toDoubleOrNull() ?: return null
-
-        val distance = distanceMatch.group(1)
-            .replace(',', '.')
-            .toDoubleOrNull() ?: return null
-
-        if (price <= 0.0 || distance <= 0.0) return null
-
-        return Pair(price, distance)
-    }
-
-    private fun readDoublePreference(key: String, defaultValue: Double): Double {
-        val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
-        val value = prefs.all[key] ?: return defaultValue
-
-        return when (value) {
-            is Number -> value.toDouble()
-            is String -> value.toDoubleOrNull() ?: defaultValue
-            else -> defaultValue
-        }
-    }
-
-    private fun showResult(price: Double, distance: Double) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
-            !Settings.canDrawOverlays(this)
-        ) {
-            return
-        }
-
-        val minPrice = readDoublePreference("flutter.minPrice", 7.5)
-        val discount = readDoublePreference("flutter.uberDiscount", 0.0)
-
-        val gross = price / distance
-        val net = gross * (1.0 - discount / 100.0)
-        val suitable = net >= minPrice
-
-        val rate = String.format(Locale.US, "%.2f", net)
-        val text = if (suitable) {
-            "✓ مناسب  $rate ج.م/كم"
-        } else {
-            "✕ غير مناسب  $rate ج.م/كم"
-        }
-
-        val background = if (suitable) {
-            Color.rgb(22, 128, 68)
-        } else {
-            Color.rgb(199, 53, 53)
-        }
-
-        val view = overlayView ?: TextView(this).also {
-            it.setPadding(28, 18, 28, 18)
-            it.setTextColor(Color.WHITE)
-            it.textSize = 16f
-            it.typeface = Typeface.DEFAULT_BOLD
-            it.gravity = Gravity.CENTER
-            it.setOnClickListener { clicked ->
-                clicked.visibility = View.GONE
+          test -f android/app/build.gradle \
+            || test -f android/app/build.gradle.kts \
+            || {
+              echo "ERROR: Android app Gradle file not found."
+              exit 1
             }
-            overlayView = it
-        }
 
-        view.text = text
-        view.setBackgroundColor(background)
-        view.visibility = View.VISIBLE
+          echo "Android Gradle files found."
 
-        if (view.parent == null) {
-            val windowType =
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                } else {
-                    WindowManager.LayoutParams.TYPE_PHONE
-                }
+      # ============================================================
+      # 11. Fix resource shrinking configuration
+      # ============================================================
+      - name: Fix Android build configuration
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
 
-            val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                windowType,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-                PixelFormat.TRANSLUCENT
-            )
+          echo "========================================"
+          echo "Checking resource shrinking"
+          echo "========================================"
 
-            params.gravity = Gravity.TOP or Gravity.END
-            params.y = 120
-            params.x = 20
+          GRADLE_FILE=""
 
-            windowManager?.addView(view, params)
-        }
-    }
+          if [ -f android/app/build.gradle ]; then
+            GRADLE_FILE="android/app/build.gradle"
+          elif [ -f android/app/build.gradle.kts ]; then
+            GRADLE_FILE="android/app/build.gradle.kts"
+          fi
 
-    override fun onInterrupt() = Unit
+          if [ -z "$GRADLE_FILE" ]; then
+            echo "ERROR: App Gradle file not found."
+            exit 1
+          fi
 
-    override fun onDestroy() {
-        overlayView?.let {
-            try {
-                windowManager?.removeView(it)
-            } catch (_: Exception) {
-            }
-        }
+          echo "Using:"
+          echo "$GRADLE_FILE"
 
-        overlayView = null
-        super.onDestroy()
-    }
-}
-EOF
-
-          # Keep release builds explicit. This also prevents the previous
-          # "Removing unused resources requires unused code shrinking" failure.
-          python3 - <<'PY'
+          # Resource shrinking requires code shrinking.
+          # If the project explicitly enables resource shrinking
+          # without minification, disable resource shrinking.
+          python3 - "$GRADLE_FILE" <<'PY'
+          import sys
           from pathlib import Path
 
-          p = Path("android/app/build.gradle")
-          s = p.read_text()
+          path = Path(sys.argv[1])
+          text = path.read_text()
 
-          s = s.replace(
-              "sourceCompatibility = JavaVersion.VERSION_1_8",
-              "sourceCompatibility = JavaVersion.VERSION_17"
-          )
-          s = s.replace(
-              "targetCompatibility = JavaVersion.VERSION_1_8",
-              "targetCompatibility = JavaVersion.VERSION_17"
-          )
-          s = s.replace(
-              "jvmTarget = JavaVersion.VERSION_1_8",
-              "jvmTarget = JavaVersion.VERSION_17"
-          )
-          s = s.replace("jvmTarget = '1.8'", "jvmTarget = '17'")
+          replacements = {
+              "shrinkResources = true": "shrinkResources = false",
+              "isShrinkResources = true": "isShrinkResources = false",
+          }
 
-          if "minifyEnabled false" not in s:
-              s = s.replace(
-                  "release {",
-                  "release {\n            minifyEnabled false\n            shrinkResources false",
-                  1
-              )
+          changed = False
 
-          p.write_text(s)
+          for old, new in replacements.items():
+              if old in text:
+                  text = text.replace(old, new)
+                  changed = True
+
+          path.write_text(text)
+
+          if changed:
+              print("Resource shrinking configuration adjusted.")
+          else:
+              print("No incompatible resource shrinking configuration found.")
           PY
 
-          # local.properties was created above because this project may invoke
-          # Gradle while validating the wrapper. Keep it explicit.
-          test -f android/local.properties
-          test -f android/gradlew
-          chmod +x android/gradlew
+          echo ""
+          echo "Android build configuration checked."
+
+      # ============================================================
+      # 12. Flutter dependencies
+      # ============================================================
+      - name: Get dependencies
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
 
           flutter pub get
 
+      # ============================================================
+      # 13. Flutter analyze
+      # ============================================================
       - name: Analyze project
         working-directory: ${{ env.PROJECT_DIR }}
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+        shell: bash
+        run: |
+          set -euo pipefail
 
+          flutter analyze
+
+      # ============================================================
+      # 14. Run tests
+      # ============================================================
+      - name: Run tests
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if find test -type f -name "*_test.dart" -print -quit 2>/dev/null | grep -q .; then
+            echo "Tests found. Running Flutter tests..."
+            flutter test
+          else
+            echo "No Flutter tests found. Skipping tests."
+          fi
+
+      # ============================================================
+      # 15. Check Gradle
+      # ============================================================
+      - name: Gradle version
+        working-directory: ${{ env.PROJECT_DIR }}/android
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          chmod +x gradlew
+
+          ./gradlew --version
+
+      # ============================================================
+      # 16. Build APK
+      # ============================================================
       - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}
-        run: flutter build apk --release
+        shell: bash
+        env:
+          GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false"
+        run: |
+          set -euo pipefail
 
+          echo "========================================"
+          echo "Building Super Driver APK"
+          echo "========================================"
+
+          flutter clean
+          flutter pub get
+
+          flutter build apk \
+            --release \
+            --android-skip-build-dependency-validation
+
+      # ============================================================
+      # 17. Verify APK
+      # ============================================================
       - name: Verify APK
         working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
           set -euo pipefail
-          APK="build/app/outputs/flutter-apk/app-release.apk"
-          test -f "$APK"
-          ls -lh "$APK"
 
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+
+          echo "========================================"
+          echo "Verifying APK"
+          echo "========================================"
+
+          if [ ! -f "$APK" ]; then
+            echo "ERROR: APK was not created."
+            echo ""
+            echo "Available APK files:"
+            find build -type f -name "*.apk" -print || true
+            exit 1
+          fi
+
+          echo "APK found:"
+          echo "$APK"
+
+          echo ""
+          echo "APK size:"
+          du -h "$APK"
+
+          echo ""
+          echo "APK information:"
+          file "$APK"
+
+          echo ""
+          echo "APK verification completed successfully."
+
+      # ============================================================
+      # 18. Upload APK
+      # ============================================================
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: super-driver-release
           path: ${{ env.PROJECT_DIR }}/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
+          retention-days: 14
