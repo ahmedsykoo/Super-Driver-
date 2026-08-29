@@ -1,5 +1,12 @@
 rootProject.buildDir = "../build"
 
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
 }
