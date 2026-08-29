@@ -142,7 +142,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       Text(_status.ready ? 'التطبيق جاهز' : 'أكمل التفعيل من إعدادات الهاتف ثم ارجع للتطبيق', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, color: _status.ready ? Colors.green : Colors.orange.shade800)),
       const SizedBox(height: 8),
       const Text('يجب تفعيل الصلاحيات يدوياً من Android. التطبيق لا يستطيع منحها تلقائياً.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.grey)),
-    ];
+    ]);
   }
 
   Widget _settingsPage() {
@@ -168,7 +168,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       Text('الإعدادات', style: Theme.of(context).textTheme.titleLarge),
       _field(_min, 'الحد الأدنى / كم'), _field(_discountController, 'خصم الشركة %'),
       FilledButton.tonalIcon(onPressed: _save, icon: const Icon(Icons.save), label: const Text('حفظ الإعدادات')),
-    ];
+    ]);
   }
 
   Widget _sectionTitle(String text) => Text(text, textAlign: TextAlign.center, style: const TextStyle(fontSize: 27, fontWeight: FontWeight.bold));
