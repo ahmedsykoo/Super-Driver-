@@ -190,11 +190,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ],
       ]))),
       const SizedBox(height: 18),
-      const Text('إعدادات التطبيقات', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+      const Text('إعدادات Uber', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
       const SizedBox(height: 8),
       _appCard('Uber', Icons.local_taxi, Colors.black87),
-      _appCard('inDrive', Icons.directions_car, Colors.green.shade700),
-      _appCard('DiDi', Icons.directions_car_filled, Colors.orange.shade800),
     ]);
   }
 

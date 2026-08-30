@@ -280,17 +280,12 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     private fun isSupportedRideApp(packageName: String): Boolean {
+        // Uber-only mode while the Uber flow is being tuned.
         return packageName == "com.ubercab.driver" ||
-            packageName == "com.uber.client" ||
-            packageName == "com.didiglobal.driver" ||
-            packageName == "sinet.startup.inDriver"
+            packageName == "com.uber.client"
     }
 
-    private fun settingsKey(packageName: String): String = when (packageName) {
-        "sinet.startup.inDriver" -> "indrive"
-        "com.didiglobal.driver" -> "didi"
-        else -> "uber"
-    }
+    private fun settingsKey(packageName: String): String = "uber"
 
     private fun isAppEnabled(packageName: String): Boolean {
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
