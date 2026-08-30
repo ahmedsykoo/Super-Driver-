@@ -6,7 +6,6 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.graphics.Bitmap
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -20,11 +19,6 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.LinearLayout
 import android.widget.TextView
 import java.util.Locale
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.TextRecognizer
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import java.util.concurrent.Executors
 import java.util.regex.Pattern
 
 class UberAccessibilityService : AccessibilityService() {
@@ -49,9 +43,6 @@ class UberAccessibilityService : AccessibilityService() {
     private var resultParams: WindowManager.LayoutParams? = null
     private var lastSignature = ""
     private var lastShownAt = 0L
-    private var screenshotInProgress = false
-    private val ocrExecutor = Executors.newSingleThreadExecutor()
-    private var textRecognizer: TextRecognizer? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val clearStaleResult = Runnable { hideOverlay() }
 
@@ -168,15 +159,14 @@ class UberAccessibilityService : AccessibilityService() {
             mainHandler.removeCallbacks(clearStaleResult)
             showResult(trip.first, trip.second, packageName)
         } else {
-            // Some live-offer distances are painted in a canvas/WebView and do not
-            // exist in the Accessibility tree. OCR the current display as a fallback.
-            requestLiveOcr(packageName, text)
+            // No trip found – just clear the stale result after 5s so
+            // the overlay doesn't linger on a trip that's already
+            // been accepted/rejected by the driver.
             mainHandler.removeCallbacks(clearStaleResult)
             mainHandler.postDelayed(clearStaleResult, 5000L)
         }
     }
 
-    private var lastOcrAt = 0L
     private var lastPolledText = ""
     private val pollIntervalMs = 1500L
     private val pollRunnable: Runnable = object : Runnable {
@@ -290,90 +280,19 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     private fun requestLiveOcr(packageName: String, accessibilityText: String) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || screenshotInProgress) return
-        // Throttle: max one OCR pass per 3 seconds – screenshot +
-        // recognition are expensive and the screen doesn't change that
-        // fast while an offer card is on screen.
-        val now = System.currentTimeMillis()
-        if (now - lastOcrAt < 3000L) return
-        lastOcrAt = now
-        screenshotInProgress = true
-        try {
-            takeScreenshot(
-            android.view.Display.DEFAULT_DISPLAY,
-            ocrExecutor,
-            object : TakeScreenshotCallback {
-                override fun onSuccess(result: ScreenshotResult) {
-                    val buffer = result.hardwareBuffer ?: run {
-                        screenshotInProgress = false
-                        return
-                    }
-                    val bitmap = try {
-                        Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
-                    } catch (_: Throwable) {
-                        null
-                    } finally {
-                        buffer.close()
-                    }
-                    if (bitmap == null) {
-                        screenshotInProgress = false
-                        return
-                    }
-                    val image = InputImage.fromBitmap(bitmap, 0)
-                    val recognizer = try {
-                        textRecognizer ?: TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS).also { textRecognizer = it }
-                    } catch (_: Throwable) {
-                        bitmap.recycle()
-                        screenshotInProgress = false
-                        return
-                    }
-                    recognizer.process(image)
-                        .addOnSuccessListener(ocrExecutor) { recognized ->
-                            val combined = "$accessibilityText ${recognized.text}"
-                            // Publish the OCR result with bounding-box
-                            // info so the debug screen can show the
-                            // on-screen positions of scale bars, the
-                            // pickup address, the destination, etc.
-                            val sb = StringBuilder()
-                            sb.append("=== OCR TEXT ===\n")
-                            sb.append(recognized.text)
-                            sb.append("\n\n=== OCR ELEMENTS (x, y, w, h, text) ===\n")
-                            for (block in recognized.textBlocks) {
-                                for (line in block.lines) {
-                                    val r = line.boundingBox
-                                    if (r == null) {
-                                        sb.append("(no box) ").append(line.text).append('\n')
-                                    } else {
-                                        sb.append("(x=${r.left},y=${r.top},w=${r.width()},h=${r.height()}) ")
-                                            .append(line.text).append('\n')
-                                    }
-                                }
-                            }
-                            latestOcrText = sb.toString()
-                            val trip = parseTrip(combined, packageName)
-                            if (trip != null) {
-                                mainHandler.post {
-                                    mainHandler.removeCallbacks(clearStaleResult)
-                                    showResult(trip.first, trip.second, packageName)
-                                }
-                            }
-                            bitmap.recycle()
-                            screenshotInProgress = false
-                        }
-                        .addOnFailureListener(ocrExecutor) {
-                            bitmap.recycle()
-                            screenshotInProgress = false
-                        }
-                }
-
-                override fun onFailure(errorCode: Int) {
-                    screenshotInProgress = false
-                }
-            }
-        )
-        } catch (_: Throwable) {
-            screenshotInProgress = false
-        }
+        // OCR was previously used as a fallback when the accessibility
+        // tree didn't contain the trip distance. It took a screenshot
+        // of the live offer card and ran ML Kit text recognition on
+        // it. The cost (CPU, memory, screenshot permission, and the
+        // 3-second throttle that sometimes lagged the overlay) was
+        // much higher than the benefit: in practice the Uber
+        // accessibility tree always contains the offer text, and
+        // when it didn't, the polling loop (pollForUpdates) catches
+        // the next update within 1.5 s anyway.
+        //
+        // The function is kept as a no-op so callers don't need to
+        // be updated; it can be reintroduced later if a specific
+        // layout requires it.
     }
 
     private fun isSupportedRideApp(packageName: String): Boolean {
@@ -803,9 +722,6 @@ class UberAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         hideOverlay()
-        textRecognizer?.close()
-        textRecognizer = null
-        ocrExecutor.shutdownNow()
         statusOverlayView?.let { view ->
             try {
                 if (view.parent != null) windowManager?.removeView(view)
