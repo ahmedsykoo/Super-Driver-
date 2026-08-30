@@ -52,28 +52,66 @@ class UberAccessibilityService : AccessibilityService() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val clearStaleResult = Runnable { hideOverlay() }
 
-    private val priceAfterNumber = Pattern.compile(
-        "(?<![0-9٠-٩۰-۹])([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)\\s*(?:ج\\s*\\.?\\s*م|ج\\.م|EGP|جنيه|جنيه\\s*مصري)",
+    private val number = "([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)"
+
+    // Trip distance patterns – strong labels first, then parenthesised
+    // (المسافة 4.5 كلم), then generic "المسافة 4.5 كلم", then the
+    // "مشوار لمدة X د (المسافة X كلم)" duration block. These win
+    // outright when present.
+    private val tripDistanceLabeledStrong = Pattern.compile(
+        "(?:مسافة\\s+الرحلة|trip\\s+distance|route\\s+distance)\\s*[:：\\-]?\\s*" + number +
+            "\\s*(?:كم|كلم|km|ميل|mi)",
         Pattern.CASE_INSENSITIVE
     )
-    private val priceBeforeNumber = Pattern.compile(
-        "(?:ج\\s*\\.?\\s*م|ج\\.م|EGP|جنيه|جنيه\\s*مصري)\\s*([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)",
+    private val tripDistanceParen = Pattern.compile(
+        "\\(\\s*(?:المسافة|مسافة|distance)\\s+" + number +
+            "\\s*(?:كم|كلم|km|ميل|mi)\\s*\\)",
         Pattern.CASE_INSENSITIVE
     )
+    private val tripDistanceAny = Pattern.compile(
+        "(?:المسافة|مسافة|distance|route)\\s*[:：\\-]?\\s*" + number +
+            "\\s*(?:كم|كلم|km|ميل|mi)",
+        Pattern.CASE_INSENSITIVE
+    )
+    private val tripInDurationAr = Pattern.compile(
+        "مشوار\\s+لمدة\\s+[0-9٠-٩۰-۹]+\\s*(?:د(?:قيقة)?|دق|h|hr|ساعة|س(?:اعة)?)" +
+            "\\s*\\(\\s*(?:المسافة|مسافة|distance)\\s+" + number +
+            "\\s*(?:كم|كلم|km|ميل|mi)\\s*\\)",
+        Pattern.CASE_INSENSITIVE
+    )
+
+    // Pickup labels – these are NEVER used as the trip distance unless
+    // the caller explicitly opts in via includePickupDistance.
+    private val pickupAr = Pattern.compile(
+        "(?:على\\s+بعد|يبعد|يَبْعُد|الوصول\\s+إلى|بعد\\s+عنك)[^0-9٠-٩۰-۹]*" + number +
+            "\\s*(?:كم|كلم|km|ميل|mi)",
+        Pattern.CASE_INSENSITIVE
+    )
+    private val pickupEn = Pattern.compile(
+        "(?:pickup|pick[\\s-]?up)\\s*(?:distance)?\\s*[:：\\-]?\\s*" + number +
+            "\\s*(?:كم|كلم|km|ميل|mi)",
+        Pattern.CASE_INSENSITIVE
+    )
+
+    // Bare "X km" – a fallback for inDrive / DiDi offer rows where the
+    // trip distance is just a number next to the price.
+    private val bareDistance = Pattern.compile(
+        "~?\\s*" + number + "\\s*(?:كم|كلم|km|ميل|mi)",
+        Pattern.CASE_INSENSITIVE
+    )
+
+    // Price patterns – labelled fare first, then the LARGEST
+    // "<number> ج.م" / "<number> EGP" so the offer price wins over
+    // suggested counter-offers in inDrive.
     private val priceByLabel = Pattern.compile(
-        "(?:السعر|سعر الرحلة|المجموع|الإجمالي|المبلغ|total|fare|trip price)\\s*[:：]?\\s*([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)",
+        "(?:السعر|سعر\\s+الرحلة|المجموع|الإجمالي|المبلغ|القبول\\s+مقابل|" +
+            "total|fare|trip\\s+price|price)\\s*[:：\\-]?\\s*" + number +
+            "\\s*(?:ج\\s*\\.?\\s*م|ج\\.م|EGP|جنيه|جنيه\\s*مصري)",
         Pattern.CASE_INSENSITIVE
     )
-    private val labeledTripDistance = Pattern.compile(
-        "(?:الرحلة|مسافة الرحلة|trip|route|destination|الوجهة)\\s*[:：-]?\\s*([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)\\s*(?:كم|كلم|km|ميل|mi)",
-        Pattern.CASE_INSENSITIVE
-    )
-    private val tripDistance = Pattern.compile(
-        "(?:المسافة|مسافة|distance|trip distance|miles|mi|km)\\s*[:：]?\\s*([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)\\s*(?:كم|كلم|km|ميل|mi)?",
-        Pattern.CASE_INSENSITIVE
-    )
-    private val fallbackDistance = Pattern.compile(
-        "([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)\\s*(?:كم|كلم|km|ميل|mi)",
+    private val priceAfterNumber = Pattern.compile(
+        "(?<![0-9٠-٩۰-۹])" + number +
+            "\\s*(?:ج\\s*\\.?\\s*م|ج\\.م|EGP|جنيه|جنيه\\s*مصري)",
         Pattern.CASE_INSENSITIVE
     )
 
@@ -207,13 +245,23 @@ class UberAccessibilityService : AccessibilityService() {
 
     private fun collectCurrentWindowText(): String {
         val out = StringBuilder()
-        rootInActiveWindow?.let { root -> collectText(root, out, 0) }
+        val activeRoot = rootInActiveWindow
+        if (activeRoot != null) {
+            try {
+                collectText(activeRoot, out, 0)
+            } finally {
+                activeRoot.recycle()
+            }
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             try {
                 for (window in windows) {
                     val root = window.root ?: continue
-                    collectText(root, out, 0)
-                    root.recycle()
+                    try {
+                        collectText(root, out, 0)
+                    } finally {
+                        root.recycle()
+                    }
                 }
             } catch (_: Exception) { }
         }
@@ -242,33 +290,116 @@ class UberAccessibilityService : AccessibilityService() {
         val price = findPrice(text) ?: return null
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
         val includePickupDistance = prefs.all["flutter.includePickupDistance_${settingsKey(packageName)}"] as? Boolean ?: false
-        val distances = mutableListOf<Double>()
-        val explicitlyLabeledTrip = mutableListOf<Double>()
-        val labeledTrip = labeledTripDistance.matcher(text)
-        while (labeledTrip.find()) labeledTrip.group(1)?.replace(',', '.')?.toDoubleOrNull()?.let {
-            explicitlyLabeledTrip.add(it)
-            distances.add(it)
-        }
-        val labeled = tripDistance.matcher(text)
-        while (labeled.find()) labeled.group(1)?.replace(',', '.')?.toDoubleOrNull()?.let { distances.add(it) }
-        val fallback = fallbackDistance.matcher(text)
-        while (fallback.find()) fallback.group(1)?.replace(',', '.')?.toDoubleOrNull()?.let { distances.add(it) }
-        // Prefer a value explicitly labelled «الرحلة» over pickup distance.
-        // Only include pickup distance when the user enables that option.
-        val routeDistance = explicitlyLabeledTrip.maxOrNull() ?: distances.maxOrNull()
-        val distance = if (includePickupDistance) distances.sum() else routeDistance
-        if (price <= 0.0 || distance == null || distance <= 0.0) return null
+        val distance = extractTripDistance(text, includePickupDistance) ?: return null
+        if (price <= 0.0 || distance <= 0.0) return null
         return Pair(price, distance)
+    }
+
+    /**
+     * Returns the trip distance to use, honouring the per-app
+     * includePickupDistance setting. Never returns a pickup-only value
+     * unless the user opted in.
+     */
+    private fun extractTripDistance(text: String, includePickupDistance: Boolean): Double? {
+        // 1. Strong trip labels win outright.
+        maxFrom(tripDistanceLabeledStrong, text)?.let { return it }
+        maxFrom(tripDistanceParen, text)?.let { return it }
+        maxFrom(tripDistanceAny, text)?.let { return it }
+
+        // 2. Uber's duration block – the inner distance is the trip.
+        maxFrom(tripInDurationAr, text)?.let { return it }
+
+        // 3. Pickup labels.
+        val pickup = pickupMax(text)
+        if (pickup != null && includePickupDistance) return pickup
+
+        // 4. Bare "X km" – this is inDrive's "1.3 كم" and similar.
+        //    Use only if there's no pickup conflict and we have a price
+        //    position to anchor against.
+        val pricePos = firstPricePos(text)
+        return pickBareClosestToPrice(text, pricePos, pickup)
+    }
+
+    private data class Hit(val value: Double, val start: Int, val end: Int)
+
+    private fun collect(re: Pattern, text: String): List<Hit> {
+        val out = mutableListOf<Hit>()
+        val m = re.matcher(text)
+        while (m.find()) {
+            val v = m.group(1)?.replace(',', '.')?.toDoubleOrNull()
+            if (v != null && v > 0) out.add(Hit(v, m.start(), m.end()))
+        }
+        return out
+    }
+
+    private fun maxFrom(re: Pattern, text: String): Double? {
+        var best: Double? = null
+        for (h in collect(re, text)) {
+            if (best == null || h.value > best) best = h.value
+        }
+        return best
+    }
+
+    private fun pickupMax(text: String): Double? {
+        var best: Double? = null
+        for (h in collect(pickupAr, text)) {
+            if (best == null || h.value > best) best = h.value
+        }
+        for (h in collect(pickupEn, text)) {
+            if (best == null || h.value > best) best = h.value
+        }
+        return best
+    }
+
+    private fun firstPricePos(text: String): Int? {
+        val pm = priceByLabel.matcher(text)
+        if (pm.find()) return pm.start()
+        val am = priceAfterNumber.matcher(text)
+        if (am.find()) return am.start()
+        return null
+    }
+
+    private fun pickBareClosestToPrice(text: String, pricePos: Int?, ignorePickup: Double?): Double? {
+        val pickupRanges = collect(pickupAr, text) + collect(pickupEn, text)
+        val bare = collect(bareDistance, text).filter { b ->
+            pickupRanges.none { it.start < b.end && b.start < it.end }
+        }
+        if (bare.isEmpty()) return null
+        if (ignorePickup != null) {
+            // The caller asked for pickup+pickup-distance mode; the bare
+            // fallback is irrelevant.
+            return null
+        }
+        if (pricePos == null) {
+            // No price anchor – take the smallest bare value (matches the
+            // inDrive / DiDi UX where the trip distance is the smaller
+            // number at the start of the offer row).
+            var v = bare.first().value
+            for (h in bare) if (h.value < v) v = h.value
+            return v
+        }
+        var best = bare.first()
+        for (b in bare) {
+            val gapBest = kotlin.math.abs(best.start - pricePos)
+            val gapHere = kotlin.math.abs(b.start - pricePos)
+            if (gapHere < gapBest || (gapHere == gapBest && b.value < best.value)) {
+                best = b
+            }
+        }
+        return best.value
     }
 
     private fun findPrice(text: String): Double? {
         val labeled = priceByLabel.matcher(text)
         if (labeled.find()) return labeled.group(1)?.replace(',', '.')?.toDoubleOrNull()
+        // Largest "<number> ج.م" / "<number> EGP" match.
         val after = priceAfterNumber.matcher(text)
-        if (after.find()) return after.group(1)?.replace(',', '.')?.toDoubleOrNull()
-        val before = priceBeforeNumber.matcher(text)
-        if (before.find()) return before.group(1)?.replace(',', '.')?.toDoubleOrNull()
-        return null
+        var best: Double? = null
+        while (after.find()) {
+            val v = after.group(1)?.replace(',', '.')?.toDoubleOrNull()
+            if (v != null && v > 0 && (best == null || v > best)) best = v
+        }
+        return best
     }
 
     private fun normalizeDigits(value: String): String {
