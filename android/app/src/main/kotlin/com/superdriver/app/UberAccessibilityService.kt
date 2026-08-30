@@ -288,36 +288,53 @@ class UberAccessibilityService : AccessibilityService() {
     private fun parseTrip(raw: String, packageName: String): Pair<Double, Double>? {
         val text = normalizeDigits(raw)
         val price = findPrice(text) ?: return null
-        val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
-        val includePickupDistance = prefs.all["flutter.includePickupDistance_${settingsKey(packageName)}"] as? Boolean ?: false
-        val distance = extractTripDistance(text, includePickupDistance) ?: return null
+        // Pickup distance is ALWAYS added to the trip distance so the
+        // price/km reflects the total distance the driver will travel
+        // (pickup + trip). The per-app includePickupDistance setting is
+        // kept for back-compat with the settings UI but is no longer
+        // consulted here.
+        val distance = extractTripDistance(text, includePickupDistance = true) ?: return null
         if (price <= 0.0 || distance <= 0.0) return null
         return Pair(price, distance)
     }
 
     /**
-     * Returns the trip distance to use, honouring the per-app
-     * includePickupDistance setting. Never returns a pickup-only value
-     * unless the user opted in.
+     * Returns the total distance the driver will travel to fulfil this
+     * trip: the pickup distance to the rider PLUS the trip distance to
+     * the destination. If only one is available, that value is used as-is.
      */
     private fun extractTripDistance(text: String, includePickupDistance: Boolean): Double? {
+        val pickup = pickupMax(text)
+
         // 1. Strong trip labels win outright.
-        maxFrom(tripDistanceLabeledStrong, text)?.let { return it }
-        maxFrom(tripDistanceParen, text)?.let { return it }
-        maxFrom(tripDistanceAny, text)?.let { return it }
+        maxFrom(tripDistanceLabeledStrong, text)?.let { return combineWithPickup(it, pickup, includePickupDistance) }
+        maxFrom(tripDistanceParen, text)?.let { return combineWithPickup(it, pickup, includePickupDistance) }
+        maxFrom(tripDistanceAny, text)?.let { return combineWithPickup(it, pickup, includePickupDistance) }
 
         // 2. Uber's duration block – the inner distance is the trip.
-        maxFrom(tripInDurationAr, text)?.let { return it }
+        maxFrom(tripInDurationAr, text)?.let { return combineWithPickup(it, pickup, includePickupDistance) }
 
-        // 3. Pickup labels.
-        val pickup = pickupMax(text)
-        if (pickup != null && includePickupDistance) return pickup
-
-        // 4. Bare "X km" – this is inDrive's "1.3 كم" and similar.
+        // 3. Bare "X km" – this is inDrive's "1.3 كم" and similar.
         //    Use only if there's no pickup conflict and we have a price
         //    position to anchor against.
         val pricePos = firstPricePos(text)
-        return pickBareClosestToPrice(text, pricePos, pickup)
+        val bare = pickBareClosestToPrice(text, pricePos, pickup)
+        if (bare != null) {
+            return combineWithPickup(bare, pickup, includePickupDistance)
+        }
+
+        // 4. Last resort: if we have a pickup but no trip, use the pickup.
+        if (includePickupDistance) return pickup
+        return null
+    }
+
+    /**
+     * Adds the pickup distance to the trip distance when the user opted
+     * in (or by default — pickup is now always added to the trip).
+     */
+    private fun combineWithPickup(trip: Double, pickup: Double?, includePickupDistance: Boolean): Double {
+        if (includePickupDistance && pickup != null && pickup > 0) return trip + pickup
+        return trip
     }
 
     private data class Hit(val value: Double, val start: Int, val end: Int)
@@ -482,8 +499,6 @@ class UberAccessibilityService : AccessibilityService() {
 
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
         val settingsKey = settingsKey(packageName)
-        val prefsKey = "flutter.includePickupDistance_$settingsKey"
-        val includePickupDistance = prefs.all[prefsKey] as? Boolean ?: false
         val minPrice = readDouble(
             prefs.all["flutter.minPrice_$settingsKey"] ?: prefs.all["flutter.minPrice"],
             7.5
