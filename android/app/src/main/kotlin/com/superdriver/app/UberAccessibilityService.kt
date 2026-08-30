@@ -192,73 +192,46 @@ class UberAccessibilityService : AccessibilityService() {
      */
     private fun pollForUpdates() {
         if (!isMonitoringStored()) return
-        // Look at EVERY window for a com.ubercab.driver or
-        // com.uber.client package – not just the active one, because
-        // the live offer card may live in a system-managed window
-        // that the activity itself never sees.
-        val packageName = findUberPackageInWindows() ?: return
-        val text = collectAllTextForPackage(packageName)
+        // Read every window's text (not just the active one). The
+        // offer card may live in a non-active window (a system
+        // dialog, a heads-up notification, a chat bubble…) so the
+        // active package check would miss it. We try every text we
+        // can find, and if any of it contains a price + distance
+        // for an Uber offer, we display the overlay.
+        val text = collectAllVisibleText()
         if (text.isBlank() || text == lastPolledText) return
         lastPolledText = text
         latestText = text
-        val trip = parseTrip(text, packageName) ?: return
+        // Try Uber first; if that fails, also try the inDrive-style
+        // ~ X km pattern as a last-ditch fallback.
+        val trip = parseTrip(text, "com.ubercab.driver")
+            ?: parseTrip(text, "com.uber.client")
+            ?: return
         mainHandler.removeCallbacks(clearStaleResult)
-        showResult(trip.first, trip.second, packageName)
+        showResult(trip.first, trip.second, "com.ubercab.driver")
     }
 
     /**
-     * Scans the system windows (and the active window) for one whose
-     * root belongs to Uber (driver or rider). Returns the package
-     * name or null if none was found.
+     * Collects text from every accessibility window currently shown
+     * on screen, regardless of which package owns it. This is the
+     * "look everywhere" version of [collectCurrentWindowText] used
+     * by the polling loop so a live offer card sitting in a
+     * non-active window (e.g. a dialog) is not missed.
      */
-    private fun findUberPackageInWindows(): String? {
-        val activePkg = rootInActiveWindow?.packageName?.toString()
-        if (activePkg == "com.ubercab.driver" || activePkg == "com.uber.client") {
-            return activePkg
-        }
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return null
-        try {
-            for (window in windows) {
-                val pkg = window.root?.packageName?.toString()
-                window.root?.recycle()
-                if (pkg == "com.ubercab.driver" || pkg == "com.uber.client") {
-                    return pkg
-                }
-            }
-        } catch (_: Exception) { }
-        return null
-    }
-
-    /**
-     * Collects text from every accessibility window whose root
-     * belongs to the given package. This is broader than
-     * [collectCurrentWindowText] and is what the polling loop uses
-     * so we never miss a window that the system shows but the
-     * activity does not own.
-     */
-    private fun collectAllTextForPackage(targetPackage: String): String {
+    private fun collectAllVisibleText(): String {
         val out = StringBuilder()
-        // 1. Active window first.
         val activeRoot = rootInActiveWindow
-        if (activeRoot != null && activeRoot.packageName?.toString() == targetPackage) {
+        if (activeRoot != null) {
             try {
                 collectText(activeRoot, out, 0)
             } finally {
                 activeRoot.recycle()
             }
-        } else {
-            activeRoot?.recycle()
         }
-        // 2. Every other window.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             try {
                 for (window in windows) {
                     val root = window.root ?: continue
-                    val pkg = root.packageName?.toString()
-                    if (pkg != targetPackage) {
-                        root.recycle()
-                        continue
-                    }
                     try {
                         collectText(root, out, 0)
                     } finally {
