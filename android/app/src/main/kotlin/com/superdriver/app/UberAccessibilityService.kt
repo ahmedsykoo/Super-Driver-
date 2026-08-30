@@ -202,18 +202,82 @@ class UberAccessibilityService : AccessibilityService() {
      */
     private fun pollForUpdates() {
         if (!isMonitoringStored()) return
-        val activePackage = rootInActiveWindow?.packageName?.toString() ?: return
-        if (activePackage != "com.ubercab.driver" && activePackage != "com.uber.client") {
-            // Not on a supported app – nothing to do.
-            return
-        }
-        val text = collectCurrentWindowText()
+        // Look at EVERY window for a com.ubercab.driver or
+        // com.uber.client package – not just the active one, because
+        // the live offer card may live in a system-managed window
+        // that the activity itself never sees.
+        val packageName = findUberPackageInWindows() ?: return
+        val text = collectAllTextForPackage(packageName)
         if (text.isBlank() || text == lastPolledText) return
         lastPolledText = text
         latestText = text
-        val trip = parseTrip(text, activePackage) ?: return
+        val trip = parseTrip(text, packageName) ?: return
         mainHandler.removeCallbacks(clearStaleResult)
-        showResult(trip.first, trip.second, activePackage)
+        showResult(trip.first, trip.second, packageName)
+    }
+
+    /**
+     * Scans the system windows (and the active window) for one whose
+     * root belongs to Uber (driver or rider). Returns the package
+     * name or null if none was found.
+     */
+    private fun findUberPackageInWindows(): String? {
+        val activePkg = rootInActiveWindow?.packageName?.toString()
+        if (activePkg == "com.ubercab.driver" || activePkg == "com.uber.client") {
+            return activePkg
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return null
+        try {
+            for (window in windows) {
+                val pkg = window.root?.packageName?.toString()
+                window.root?.recycle()
+                if (pkg == "com.ubercab.driver" || pkg == "com.uber.client") {
+                    return pkg
+                }
+            }
+        } catch (_: Exception) { }
+        return null
+    }
+
+    /**
+     * Collects text from every accessibility window whose root
+     * belongs to the given package. This is broader than
+     * [collectCurrentWindowText] and is what the polling loop uses
+     * so we never miss a window that the system shows but the
+     * activity does not own.
+     */
+    private fun collectAllTextForPackage(targetPackage: String): String {
+        val out = StringBuilder()
+        // 1. Active window first.
+        val activeRoot = rootInActiveWindow
+        if (activeRoot != null && activeRoot.packageName?.toString() == targetPackage) {
+            try {
+                collectText(activeRoot, out, 0)
+            } finally {
+                activeRoot.recycle()
+            }
+        } else {
+            activeRoot?.recycle()
+        }
+        // 2. Every other window.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            try {
+                for (window in windows) {
+                    val root = window.root ?: continue
+                    val pkg = root.packageName?.toString()
+                    if (pkg != targetPackage) {
+                        root.recycle()
+                        continue
+                    }
+                    try {
+                        collectText(root, out, 0)
+                    } finally {
+                        root.recycle()
+                    }
+                }
+            } catch (_: Exception) { }
+        }
+        return out.toString().trim()
     }
 
     private fun startPolling() {
