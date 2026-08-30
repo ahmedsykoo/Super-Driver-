@@ -55,6 +55,10 @@ class UberAccessibilityService : AccessibilityService() {
         "(?:السعر|سعر الرحلة|المجموع|الإجمالي|المبلغ|total|fare|trip price)\\s*[:：]?\\s*([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)",
         Pattern.CASE_INSENSITIVE
     )
+    private val labeledTripDistance = Pattern.compile(
+        "(?:الرحلة|مسافة الرحلة|trip|route|destination|الوجهة)\\s*[:：-]?\\s*([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)\\s*(?:كم|كلم|km|ميل|mi)",
+        Pattern.CASE_INSENSITIVE
+    )
     private val tripDistance = Pattern.compile(
         "(?:المسافة|مسافة|distance|trip distance|miles|mi|km)\\s*[:：]?\\s*([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)\\s*(?:كم|كلم|km|ميل|mi)?",
         Pattern.CASE_INSENSITIVE
@@ -168,15 +172,20 @@ class UberAccessibilityService : AccessibilityService() {
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
         val includePickupDistance = prefs.all["flutter.includePickupDistance_${settingsKey(packageName)}"] as? Boolean ?: false
         val distances = mutableListOf<Double>()
+        val explicitlyLabeledTrip = mutableListOf<Double>()
+        val labeledTrip = labeledTripDistance.matcher(text)
+        while (labeledTrip.find()) labeledTrip.group(1)?.replace(',', '.')?.toDoubleOrNull()?.let {
+            explicitlyLabeledTrip.add(it)
+            distances.add(it)
+        }
         val labeled = tripDistance.matcher(text)
         while (labeled.find()) labeled.group(1)?.replace(',', '.')?.toDoubleOrNull()?.let { distances.add(it) }
         val fallback = fallbackDistance.matcher(text)
         while (fallback.find()) fallback.group(1)?.replace(',', '.')?.toDoubleOrNull()?.let { distances.add(it) }
-        // Ride apps may expose pickup and trip distances in varying order.
-        // The trip is normally the longer route distance, so never use the
-        // pickup value alone by accident. Pickup is included only when enabled.
-        val tripDistance = distances.maxOrNull()
-        val distance = if (includePickupDistance) distances.sum() else tripDistance
+        // Prefer a value explicitly labelled «الرحلة» over pickup distance.
+        // Only include pickup distance when the user enables that option.
+        val routeDistance = explicitlyLabeledTrip.maxOrNull() ?: distances.maxOrNull()
+        val distance = if (includePickupDistance) distances.sum() else routeDistance
         if (price <= 0.0 || distance == null || distance <= 0.0) return null
         return Pair(price, distance)
     }
