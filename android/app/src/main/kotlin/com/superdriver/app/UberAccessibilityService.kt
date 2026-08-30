@@ -169,20 +169,24 @@ class UberAccessibilityService : AccessibilityService() {
 
         val text = collectCurrentWindowText()
         latestText = text
-        // Always run OCR for inDrive so we can see the on-screen map
-        // scale bar and address labels – the Accessibility text only
-        // gives us the pickup distance ("~ 1,7 km"), not the trip
-        // distance we actually need for EGP/km.
-        val isIndrive = packageName == "sinet.startup.inDriver"
         val trip = parseTrip(text, packageName)
         if (trip != null) {
             mainHandler.removeCallbacks(clearStaleResult)
             showResult(trip.first, trip.second, packageName)
-        }
-        if (isIndrive || trip == null) {
+        } else {
+            // Some live-offer distances are painted in a canvas/WebView and do not
+            // exist in the Accessibility tree. OCR the current display as a fallback.
             requestLiveOcr(packageName, text)
             mainHandler.removeCallbacks(clearStaleResult)
             mainHandler.postDelayed(clearStaleResult, 5000L)
+        }
+        // For inDrive, also run OCR in the background so the debug
+        // screen can show the map's scale bar + label positions. The
+        // result is NOT used to compute EGP/km (the parser already has
+        // what it needs from the Accessibility text); it just lets the
+        // user see what's on the map.
+        if (packageName == "sinet.startup.inDriver" && trip != null) {
+            requestLiveOcr(packageName, text)
         }
     }
 
