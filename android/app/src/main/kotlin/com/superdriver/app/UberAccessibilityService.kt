@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
@@ -35,6 +36,8 @@ class UberAccessibilityService : AccessibilityService() {
     private var overlayView: View? = null
     private var statusOverlayView: TextView? = null
     private var windowManager: WindowManager? = null
+    private var statusParams: WindowManager.LayoutParams? = null
+    private var resultParams: WindowManager.LayoutParams? = null
     private var lastSignature = ""
     private var lastShownAt = 0L
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -83,10 +86,15 @@ class UberAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val packageName = event?.packageName?.toString() ?: return
-        if (!isSupportedRideApp(packageName) || !isMonitoringStored() || !isAppEnabled(packageName)) {
-            // Leaving Uber, disabling monitoring, or disabling this app must remove
-            // only the trip result; the red/green status button is separate.
+        if (!isMonitoringStored()) {
             hideOverlay()
+            return
+        }
+        if (!isSupportedRideApp(packageName) || !isAppEnabled(packageName)) {
+            // Ignore system/status-bar accessibility events while the active window
+            // is still a supported ride app; otherwise the result would flash.
+            val activePackage = rootInActiveWindow?.packageName?.toString()
+            if (activePackage == null || !isSupportedRideApp(activePackage)) hideOverlay()
             return
         }
 
@@ -210,6 +218,7 @@ class UberAccessibilityService : AccessibilityService() {
                 if (view.parent != null) windowManager?.removeView(view)
             } catch (_: Exception) { }
             overlayView = null
+            resultParams = null
         }
     }
 
@@ -231,6 +240,7 @@ class UberAccessibilityService : AccessibilityService() {
         }
         if (view.parent == null) {
             val windowType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE
+            val saved = getSharedPreferences("super_driver", MODE_PRIVATE)
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -239,9 +249,11 @@ class UberAccessibilityService : AccessibilityService() {
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
-                y = 180
-                x = 18
+                y = saved.getInt("status_y", 180)
+                x = saved.getInt("status_x", 18)
             }
+            statusParams = params
+            attachDrag(view, params, "status")
             try {
                 windowManager?.addView(view, params)
             } catch (_: Exception) {
@@ -301,6 +313,7 @@ class UberAccessibilityService : AccessibilityService() {
             } else {
                 WindowManager.LayoutParams.TYPE_PHONE
             }
+            val saved = getSharedPreferences("super_driver", MODE_PRIVATE)
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -309,10 +322,12 @@ class UberAccessibilityService : AccessibilityService() {
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT
             ).apply {
-                gravity = Gravity.TOP or Gravity.END
-                y = 130
-                x = 16
+                gravity = Gravity.TOP or Gravity.START
+                y = saved.getInt("result_y", 130)
+                x = saved.getInt("result_x", 16)
             }
+            resultParams = params
+            attachDrag(root, params, "result")
             try {
                 windowManager?.addView(root, params)
             } catch (_: Exception) {
@@ -327,7 +342,6 @@ class UberAccessibilityService : AccessibilityService() {
             gravity = Gravity.CENTER
             setPadding(26, 14, 26, 14)
             elevation = 12f
-            setOnClickListener { hideOverlay() }
         }
         val title = TextView(this).apply {
             tag = "title"
@@ -345,6 +359,43 @@ class UberAccessibilityService : AccessibilityService() {
         container.addView(title, LinearLayout.LayoutParams(-2, -2))
         container.addView(details, LinearLayout.LayoutParams(-2, -2))
         return container
+    }
+
+    private fun attachDrag(view: View, params: WindowManager.LayoutParams, key: String) {
+        var downX = 0f
+        var downY = 0f
+        var startX = 0
+        var startY = 0
+        var moved = false
+        view.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    downY = event.rawY
+                    startX = params.x
+                    startY = params.y
+                    moved = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = (event.rawX - downX).toInt()
+                    val dy = (event.rawY - downY).toInt()
+                    if (kotlin.math.abs(dx) > 4 || kotlin.math.abs(dy) > 4) moved = true
+                    params.x = (startX + dx).coerceAtLeast(0)
+                    params.y = (startY + dy).coerceAtLeast(0)
+                    try { windowManager?.updateViewLayout(view, params) } catch (_: Exception) { }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (moved) {
+                        getSharedPreferences("super_driver", MODE_PRIVATE).edit()
+                            .putInt("${key}_x", params.x).putInt("${key}_y", params.y).apply()
+                    }
+                    true
+                }
+                else -> true
+            }
+        }
     }
 
     private fun fmt(value: Double): String = String.format(Locale.US, "%.2f", value)
