@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.Bitmap
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -19,6 +20,10 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.LinearLayout
 import android.widget.TextView
 import java.util.Locale
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import java.util.concurrent.Executors
 import java.util.regex.Pattern
 
 class UberAccessibilityService : AccessibilityService() {
@@ -40,6 +45,9 @@ class UberAccessibilityService : AccessibilityService() {
     private var resultParams: WindowManager.LayoutParams? = null
     private var lastSignature = ""
     private var lastShownAt = 0L
+    private var screenshotInProgress = false
+    private val ocrExecutor = Executors.newSingleThreadExecutor()
+    private val textRecognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
     private val mainHandler = Handler(Looper.getMainLooper())
     private val clearStaleResult = Runnable { hideOverlay() }
 
@@ -71,6 +79,13 @@ class UberAccessibilityService : AccessibilityService() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+    }
+
+    override fun onDestroy() {
+        textRecognizer.close()
+        ocrExecutor.shutdownNow()
+        instance = null
+        super.onDestroy()
     }
 
     override fun onServiceConnected() {
@@ -109,11 +124,57 @@ class UberAccessibilityService : AccessibilityService() {
             mainHandler.removeCallbacks(clearStaleResult)
             showResult(trip.first, trip.second, packageName)
         } else {
-            // The live offer can be populated through several accessibility events.
-            // Give it time to finish loading, then remove stale data if no valid offer appears.
+            // Some live-offer distances are painted in a canvas/WebView and do not
+            // exist in the Accessibility tree. OCR the current display as a fallback.
+            requestLiveOcr(packageName, text)
             mainHandler.removeCallbacks(clearStaleResult)
             mainHandler.postDelayed(clearStaleResult, 5000L)
         }
+    }
+
+    private fun requestLiveOcr(packageName: String, accessibilityText: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || screenshotInProgress) return
+        screenshotInProgress = true
+        takeScreenshot(
+            android.view.Display.DEFAULT_DISPLAY,
+            ocrExecutor,
+            object : TakeScreenshotCallback {
+                override fun onSuccess(result: ScreenshotResult) {
+                    val buffer = result.hardwareBuffer ?: run {
+                        screenshotInProgress = false
+                        return
+                    }
+                    val bitmap = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
+                    buffer.close()
+                    if (bitmap == null) {
+                        screenshotInProgress = false
+                        return
+                    }
+                    val image = InputImage.fromBitmap(bitmap, 0)
+                    textRecognizer.process(image)
+                        .addOnSuccessListener(ocrExecutor) { recognized ->
+                            val combined = "$accessibilityText ${recognized.text}"
+                            val trip = parseTrip(combined, packageName)
+                            if (trip != null) {
+                                mainHandler.post {
+                                    mainHandler.removeCallbacks(clearStaleResult)
+                                    showResult(trip.first, trip.second, packageName)
+                                }
+                            }
+                            bitmap.recycle()
+                            screenshotInProgress = false
+                        }
+                        .addOnFailureListener(ocrExecutor) {
+                            bitmap.recycle()
+                            screenshotInProgress = false
+                        }
+                }
+
+                override fun onFailure(errorCode: Int) {
+                    screenshotInProgress = false
+                }
+            }
+        )
     }
 
     private fun isSupportedRideApp(packageName: String): Boolean {
