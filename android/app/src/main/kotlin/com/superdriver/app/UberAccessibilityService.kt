@@ -428,14 +428,14 @@ class UberAccessibilityService : AccessibilityService() {
     private fun findPrice(text: String): Double? {
         val labeled = priceByLabel.matcher(text)
         if (labeled.find()) return labeled.group(1)?.replace(',', '.')?.toDoubleOrNull()
-        // Largest "<number> ج.م" / "<number> EGP" match.
+        // No labelled fare – use the FIRST bare "<number> EGP" match.
+        // We can't use the largest because inDrive shows suggested
+        // counter-offers (144/132/126 EGP) that are LARGER than the
+        // actual offer price (120 EGP). Taking the first match means
+        // we read the offer price, which is the headline number.
         val after = priceAfterNumber.matcher(text)
-        var best: Double? = null
-        while (after.find()) {
-            val v = after.group(1)?.replace(',', '.')?.toDoubleOrNull()
-            if (v != null && v > 0 && (best == null || v > best)) best = v
-        }
-        return best
+        if (after.find()) return after.group(1)?.replace(',', '.')?.toDoubleOrNull()
+        return null
     }
 
     private fun normalizeDigits(value: String): String {
