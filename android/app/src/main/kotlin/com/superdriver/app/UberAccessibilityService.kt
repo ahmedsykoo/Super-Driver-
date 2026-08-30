@@ -168,7 +168,7 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     private var lastPolledText = ""
-    private val pollIntervalMs = 1500L
+    private val pollIntervalMs = 1000L
     private val pollRunnable: Runnable = object : Runnable {
         override fun run() {
             try {
@@ -199,11 +199,14 @@ class UberAccessibilityService : AccessibilityService() {
         // can find, and if any of it contains a price + distance
         // for an Uber offer, we display the overlay.
         val text = collectAllVisibleText()
-        if (text.isBlank() || text == lastPolledText) return
-        lastPolledText = text
+        if (text.isBlank()) return
+        // Always re-parse every poll – the cost is tiny (a few
+        // regex matches on a string of a few hundred chars) and
+        // skipping when "the text didn't change" caused us to miss
+        // live offers that re-used the same surrounding text but
+        // changed the price or the distance.
         latestText = text
-        // Try Uber first; if that fails, also try the inDrive-style
-        // ~ X km pattern as a last-ditch fallback.
+        lastPolledText = text
         val trip = parseTrip(text, "com.ubercab.driver")
             ?: parseTrip(text, "com.uber.client")
             ?: return
