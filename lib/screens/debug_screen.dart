@@ -4,15 +4,26 @@ import '../services/price_calculator.dart';
 
 // Reads the latest accessibility-tree text published by the
 // UberAccessibilityService via the existing MethodChannel set up by
-// MainActivity.kt (channel "com.superdriver/accessibility", method
-// "getAccessibilityText"). Returns "" if the service has not pushed
-// any text yet or the user hasn't enabled the accessibility service.
+// MainActivity.kt (channel "com.superdriver/accessibility"). Returns
+// "" if the service has not pushed any text yet or the user hasn't
+// enabled the accessibility service.
 class DebugBridge {
   static const _channel = MethodChannel('com.superdriver/accessibility');
 
   static Future<String> getLatestText() async {
     try {
       final v = await _channel.invokeMethod<String>('getAccessibilityText');
+      return v ?? '';
+    } on PlatformException {
+      return '';
+    } on MissingPluginException {
+      return '';
+    }
+  }
+
+  static Future<String> getOcrText() async {
+    try {
+      final v = await _channel.invokeMethod<String>('getOcrText');
       return v ?? '';
     } on PlatformException {
       return '';
@@ -31,6 +42,7 @@ class DebugScreen extends StatefulWidget {
 
 class _DebugScreenState extends State<DebugScreen> {
   String _rawText = '';
+  String _ocrText = '';
   bool _loading = true;
   String _extractedPrice = '—';
   String _extractedTrip = '—';
@@ -45,6 +57,7 @@ class _DebugScreenState extends State<DebugScreen> {
   Future<void> _refresh() async {
     setState(() => _loading = true);
     final text = await DebugBridge.getLatestText();
+    final ocr = await DebugBridge.getOcrText();
     final price = PriceCalculator.extractPrice(text);
     // 'both' = pickup + trip, like the live service does for all apps
     final trip = PriceCalculator.extractTripDistance(text, policy: 'both');
@@ -55,6 +68,7 @@ class _DebugScreenState extends State<DebugScreen> {
     if (!mounted) return;
     setState(() {
       _rawText = text;
+      _ocrText = ocr;
       _extractedPrice = price?.toStringAsFixed(2) ?? '—';
       _extractedTrip = trip?.toStringAsFixed(2) ?? '—';
       _perKm = perKm;
@@ -98,6 +112,15 @@ class _DebugScreenState extends State<DebugScreen> {
                   _label('Computed EGP/km'),
                   Text(_perKm, style: _valueStyle()),
                   const SizedBox(height: 24),
+                  _label('OCR text + bounding boxes (live screenshot)'),
+                  const SizedBox(height: 6),
+                  SelectableText(
+                    _ocrText.isEmpty
+                        ? '(empty — open inDrive, wait 3-4 seconds, then tap Refresh)'
+                        : _ocrText,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                  ),
+                  const SizedBox(height: 24),
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
@@ -110,7 +133,7 @@ class _DebugScreenState extends State<DebugScreen> {
                       '  1. Open Uber / inDrive / DiDi and bring up a real offer card.\n'
                       '  2. Press Home (don\'t close the app).\n'
                       '  3. Re-open Super Driver and tap Debug.\n'
-                      '  4. Tap Refresh and copy the raw text.\n'
+                      '  4. Tap Refresh and copy the raw text + OCR text.\n'
                       '  5. Send the screenshot to the developer.',
                       style: TextStyle(fontSize: 13),
                     ),

@@ -32,6 +32,10 @@ class UberAccessibilityService : AccessibilityService() {
     companion object {
         @Volatile var latestText: String = ""
             private set
+        // Last raw text the OCR pass produced (used by the debug screen
+        // so we can see what ML Kit saw on the live inDrive map).
+        @Volatile var latestOcrText: String = ""
+            private set
         @Volatile private var instance: UberAccessibilityService? = null
 
         fun setMonitoringEnabled(enabled: Boolean) {
@@ -165,21 +169,33 @@ class UberAccessibilityService : AccessibilityService() {
 
         val text = collectCurrentWindowText()
         latestText = text
+        // Always run OCR for inDrive so we can see the on-screen map
+        // scale bar and address labels – the Accessibility text only
+        // gives us the pickup distance ("~ 1,7 km"), not the trip
+        // distance we actually need for EGP/km.
+        val isIndrive = packageName == "sinet.startup.inDriver"
         val trip = parseTrip(text, packageName)
         if (trip != null) {
             mainHandler.removeCallbacks(clearStaleResult)
             showResult(trip.first, trip.second, packageName)
-        } else {
-            // Some live-offer distances are painted in a canvas/WebView and do not
-            // exist in the Accessibility tree. OCR the current display as a fallback.
+        }
+        if (isIndrive || trip == null) {
             requestLiveOcr(packageName, text)
             mainHandler.removeCallbacks(clearStaleResult)
             mainHandler.postDelayed(clearStaleResult, 5000L)
         }
     }
 
+    private var lastOcrAt = 0L
+
     private fun requestLiveOcr(packageName: String, accessibilityText: String) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || screenshotInProgress) return
+        // Throttle: max one OCR pass per 3 seconds – screenshot +
+        // recognition are expensive and the screen doesn't change that
+        // fast while an offer card is on screen.
+        val now = System.currentTimeMillis()
+        if (now - lastOcrAt < 3000L) return
+        lastOcrAt = now
         screenshotInProgress = true
         try {
             takeScreenshot(
@@ -213,6 +229,26 @@ class UberAccessibilityService : AccessibilityService() {
                     recognizer.process(image)
                         .addOnSuccessListener(ocrExecutor) { recognized ->
                             val combined = "$accessibilityText ${recognized.text}"
+                            // Publish the OCR result with bounding-box
+                            // info so the debug screen can show the
+                            // on-screen positions of scale bars, the
+                            // pickup address, the destination, etc.
+                            val sb = StringBuilder()
+                            sb.append("=== OCR TEXT ===\n")
+                            sb.append(recognized.text)
+                            sb.append("\n\n=== OCR ELEMENTS (x, y, w, h, text) ===\n")
+                            for (block in recognized.textBlocks) {
+                                for (line in block.lines) {
+                                    val r = line.boundingBox
+                                    if (r == null) {
+                                        sb.append("(no box) ").append(line.text).append('\n')
+                                    } else {
+                                        sb.append("(x=${r.left},y=${r.top},w=${r.width()},h=${r.height()}) ")
+                                            .append(line.text).append('\n')
+                                    }
+                                }
+                            }
+                            latestOcrText = sb.toString()
                             val trip = parseTrip(combined, packageName)
                             if (trip != null) {
                                 mainHandler.post {
@@ -732,6 +768,7 @@ class UberAccessibilityService : AccessibilityService() {
         }
         statusOverlayView = null
         latestText = ""
+        latestOcrText = ""
         instance = null
         super.onDestroy()
     }
