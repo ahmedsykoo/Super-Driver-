@@ -172,9 +172,10 @@ class UberAccessibilityService : AccessibilityService() {
         while (labeled.find()) labeled.group(1)?.replace(',', '.')?.toDoubleOrNull()?.let { distances.add(it) }
         val fallback = fallbackDistance.matcher(text)
         while (fallback.find()) fallback.group(1)?.replace(',', '.')?.toDoubleOrNull()?.let { distances.add(it) }
-        // Uber, inDrive, and DiDi may expose pickup and trip distances together.
-        // By default use only the trip distance; the page option can include pickup distance.
-        val tripDistance = distances.lastOrNull()
+        // Ride apps may expose pickup and trip distances in varying order.
+        // The trip is normally the longer route distance, so never use the
+        // pickup value alone by accident. Pickup is included only when enabled.
+        val tripDistance = distances.maxOrNull()
         val distance = if (includePickupDistance) distances.sum() else tripDistance
         if (price <= 0.0 || distance == null || distance <= 0.0) return null
         return Pair(price, distance)
