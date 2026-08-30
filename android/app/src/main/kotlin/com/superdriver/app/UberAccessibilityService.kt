@@ -81,13 +81,6 @@ class UberAccessibilityService : AccessibilityService() {
         instance = this
     }
 
-    override fun onDestroy() {
-        textRecognizer.close()
-        ocrExecutor.shutdownNow()
-        instance = null
-        super.onDestroy()
-    }
-
     override fun onServiceConnected() {
         super.onServiceConnected()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -509,6 +502,8 @@ class UberAccessibilityService : AccessibilityService() {
         }
         statusOverlayView = null
         latestText = ""
+        textRecognizer.close()
+        ocrExecutor.shutdownNow()
         instance = null
         super.onDestroy()
     }
