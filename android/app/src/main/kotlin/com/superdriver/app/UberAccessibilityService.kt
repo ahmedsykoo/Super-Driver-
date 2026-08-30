@@ -177,6 +177,53 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     private var lastOcrAt = 0L
+    private var lastPolledText = ""
+    private val pollIntervalMs = 1500L
+    private val pollRunnable: Runnable = object : Runnable {
+        override fun run() {
+            try {
+                pollForUpdates()
+            } finally {
+                if (isMonitoringStored()) {
+                    mainHandler.postDelayed(this, pollIntervalMs)
+                }
+            }
+        }
+    }
+
+    /**
+     * Polls the active window's accessibility tree every
+     * [pollIntervalMs] and re-runs the parser when the text changes.
+     * Necessary because Uber's live-offer card updates in place – the
+     * Accessibility tree may not fire a TYPE_WINDOW_CONTENT_CHANGED
+     * event for the new offer, so without polling we would only see
+     * the historical trip the user happened to have open when the
+     * service started.
+     */
+    private fun pollForUpdates() {
+        if (!isMonitoringStored()) return
+        val activePackage = rootInActiveWindow?.packageName?.toString() ?: return
+        if (activePackage != "com.ubercab.driver" && activePackage != "com.uber.client") {
+            // Not on a supported app – nothing to do.
+            return
+        }
+        val text = collectCurrentWindowText()
+        if (text.isBlank() || text == lastPolledText) return
+        lastPolledText = text
+        latestText = text
+        val trip = parseTrip(text, activePackage) ?: return
+        mainHandler.removeCallbacks(clearStaleResult)
+        showResult(trip.first, trip.second, activePackage)
+    }
+
+    private fun startPolling() {
+        mainHandler.removeCallbacks(pollRunnable)
+        mainHandler.postDelayed(pollRunnable, pollIntervalMs)
+    }
+
+    private fun stopPolling() {
+        mainHandler.removeCallbacks(pollRunnable)
+    }
 
     private fun requestLiveOcr(packageName: String, accessibilityText: String) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || screenshotInProgress) return
@@ -475,12 +522,17 @@ class UberAccessibilityService : AccessibilityService() {
 
     private fun applyMonitoringState(enabled: Boolean) {
         showStatusOverlay(enabled)
-        if (!enabled) overlayView?.let { view ->
-            try {
-                if (view.parent != null) windowManager?.removeView(view)
-            } catch (_: Exception) { }
-            overlayView = null
-            resultParams = null
+        if (!enabled) {
+            overlayView?.let { view ->
+                try {
+                    if (view.parent != null) windowManager?.removeView(view)
+                } catch (_: Exception) { }
+                overlayView = null
+                resultParams = null
+            }
+            stopPolling()
+        } else {
+            startPolling()
         }
     }
 
