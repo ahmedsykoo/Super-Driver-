@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/trip_data.dart';
 import '../services/accessibility_listener.dart';
 import '../services/price_calculator.dart';
+import 'debug_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final ValueChanged<Locale> onLocaleChange;
@@ -141,7 +142,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Super Driver'), centerTitle: true,
-          actions: [PopupMenuButton<String>(onSelected: (v) => widget.onLocaleChange(Locale(v)), itemBuilder: (_) => const [PopupMenuItem(value: 'ar', child: Text('العربية')), PopupMenuItem(value: 'en', child: Text('English'))])],
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.bug_report),
+              tooltip: 'Debug',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const DebugScreen()),
+              ),
+            ),
+            PopupMenuButton<String>(onSelected: (v) => widget.onLocaleChange(Locale(v)), itemBuilder: (_) => const [PopupMenuItem(value: 'ar', child: Text('العربية')), PopupMenuItem(value: 'en', child: Text('English'))]),
+          ],
         ),
         body: AnimatedSwitcher(duration: const Duration(milliseconds: 300), child: _status.ready ? _settingsPage() : _activationPage()),
       ),
