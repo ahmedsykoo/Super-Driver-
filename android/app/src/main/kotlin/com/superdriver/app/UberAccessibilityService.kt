@@ -283,8 +283,10 @@ class UberAccessibilityService : AccessibilityService() {
             0.0
         ).coerceIn(0.0, 100.0)
 
-        val gross = price / distance
-        val net = gross * (1.0 - discount / 100.0)
+        // Apply the company percentage to the fare first, then divide by
+        // the configured trip distance. Pickup distance is excluded by default.
+        val fareAfterDiscount = price * (1.0 - discount / 100.0)
+        val net = fareAfterDiscount / distance
         val suitable = net >= minPrice
         val appLabel = when (packageName) {
             "com.didiglobal.driver" -> "DiDi"
@@ -303,7 +305,11 @@ class UberAccessibilityService : AccessibilityService() {
         val details = root.findViewWithTag<TextView>("details")
 
         title.text = if (suitable) "✓ مناسب • $appLabel" else "✕ غير مناسب • $appLabel"
-        details.text = "${fmt(price)} ج.م  •  ${fmt(distance)} كم\n${fmt(gross)} ج.م/كم  •  خصم ${fmt(discount)}%  •  بعد الخصم ${fmt(net)} ج.م/كم"
+        details.text = if (suitable) {
+            "السعر مناسب\n${fmt(net)} ج.م/كم بعد الخصم"
+        } else {
+            "السعر غير مناسب\nالمطلوب ${fmt(minPrice)} ج.م/كم\nالحالي ${fmt(net)} ج.م/كم بعد الخصم"
+        }
         title.setTextColor(Color.WHITE)
         details.setTextColor(Color.WHITE)
         root.setBackgroundColor(if (suitable) Color.rgb(20, 132, 72) else Color.rgb(198, 48, 48))
