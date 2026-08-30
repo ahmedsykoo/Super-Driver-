@@ -22,6 +22,7 @@ import android.widget.TextView
 import java.util.Locale
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.util.concurrent.Executors
 import java.util.regex.Pattern
@@ -47,7 +48,7 @@ class UberAccessibilityService : AccessibilityService() {
     private var lastShownAt = 0L
     private var screenshotInProgress = false
     private val ocrExecutor = Executors.newSingleThreadExecutor()
-    private val textRecognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
+    private var textRecognizer: TextRecognizer? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val clearStaleResult = Runnable { hideOverlay() }
 
@@ -128,7 +129,8 @@ class UberAccessibilityService : AccessibilityService() {
     private fun requestLiveOcr(packageName: String, accessibilityText: String) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || screenshotInProgress) return
         screenshotInProgress = true
-        takeScreenshot(
+        try {
+            takeScreenshot(
             android.view.Display.DEFAULT_DISPLAY,
             ocrExecutor,
             object : TakeScreenshotCallback {
@@ -137,14 +139,26 @@ class UberAccessibilityService : AccessibilityService() {
                         screenshotInProgress = false
                         return
                     }
-                    val bitmap = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
-                    buffer.close()
+                    val bitmap = try {
+                        Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
+                    } catch (_: Throwable) {
+                        null
+                    } finally {
+                        buffer.close()
+                    }
                     if (bitmap == null) {
                         screenshotInProgress = false
                         return
                     }
                     val image = InputImage.fromBitmap(bitmap, 0)
-                    textRecognizer.process(image)
+                    val recognizer = try {
+                        textRecognizer ?: TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS).also { textRecognizer = it }
+                    } catch (_: Throwable) {
+                        bitmap.recycle()
+                        screenshotInProgress = false
+                        return
+                    }
+                    recognizer.process(image)
                         .addOnSuccessListener(ocrExecutor) { recognized ->
                             val combined = "$accessibilityText ${recognized.text}"
                             val trip = parseTrip(combined, packageName)
@@ -168,6 +182,9 @@ class UberAccessibilityService : AccessibilityService() {
                 }
             }
         )
+        } catch (_: Throwable) {
+            screenshotInProgress = false
+        }
     }
 
     private fun isSupportedRideApp(packageName: String): Boolean {
@@ -495,6 +512,9 @@ class UberAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         hideOverlay()
+        textRecognizer?.close()
+        textRecognizer = null
+        ocrExecutor.shutdownNow()
         statusOverlayView?.let { view ->
             try {
                 if (view.parent != null) windowManager?.removeView(view)
@@ -502,8 +522,6 @@ class UberAccessibilityService : AccessibilityService() {
         }
         statusOverlayView = null
         latestText = ""
-        textRecognizer.close()
-        ocrExecutor.shutdownNow()
         instance = null
         super.onDestroy()
     }
