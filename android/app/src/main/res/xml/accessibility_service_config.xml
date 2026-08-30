@@ -5,6 +5,6 @@
     android:notificationTimeout="150"
     android:canRetrieveWindowContent="true"
     android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
-    android:packageNames="com.ubercab.driver,com.uber.client,com.didiglobal.driver,sinet.startup.inDriver"
+    android:packageNames="com.ubercab.driver,com.uber.client"
     android:description="@string/accessibility_description"
     android:settingsActivity="com.superdriver.app.MainActivity" />

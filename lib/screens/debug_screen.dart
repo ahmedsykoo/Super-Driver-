@@ -99,7 +99,7 @@ class _DebugScreenState extends State<DebugScreen> {
                   _label('Raw accessibility text'),
                   const SizedBox(height: 6),
                   SelectableText(
-                    _rawText.isEmpty ? '(empty — open Uber/inDrive/DiDi first, then come back)' : _rawText,
+                    _rawText.isEmpty ? '(empty — open Uber first, then come back)' : _rawText,
                     style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
                   ),
                   const SizedBox(height: 24),
@@ -116,7 +116,7 @@ class _DebugScreenState extends State<DebugScreen> {
                   const SizedBox(height: 6),
                   SelectableText(
                     _ocrText.isEmpty
-                        ? '(empty — open inDrive, wait 3-4 seconds, then tap Refresh)'
+                        ? '(empty — open Uber, wait 3-4 seconds, then tap Refresh)'
                         : _ocrText,
                     style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
                   ),
@@ -130,7 +130,7 @@ class _DebugScreenState extends State<DebugScreen> {
                     ),
                     child: const Text(
                       'How to use:\n'
-                      '  1. Open Uber / inDrive / DiDi and bring up a real offer card.\n'
+                      '  1. Open Uber and bring up a real offer card.\n'
                       '  2. Press Home (don\'t close the app).\n'
                       '  3. Re-open Super Driver and tap Debug.\n'
                       '  4. Tap Refresh and copy the raw text + OCR text.\n'

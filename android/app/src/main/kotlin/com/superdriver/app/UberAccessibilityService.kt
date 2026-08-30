@@ -180,14 +180,6 @@ class UberAccessibilityService : AccessibilityService() {
             mainHandler.removeCallbacks(clearStaleResult)
             mainHandler.postDelayed(clearStaleResult, 5000L)
         }
-        // For inDrive, also run OCR in the background so the debug
-        // screen can show the map's scale bar + label positions. The
-        // result is NOT used to compute EGP/km (the parser already has
-        // what it needs from the Accessibility text); it just lets the
-        // user see what's on the map.
-        if (packageName == "sinet.startup.inDriver" && trip != null) {
-            requestLiveOcr(packageName, text)
-        }
     }
 
     private var lastOcrAt = 0L
@@ -342,16 +334,7 @@ class UberAccessibilityService : AccessibilityService() {
         // (pickup + trip). The per-app includePickupDistance setting is
         // kept for back-compat with the settings UI but is no longer
         // consulted here.
-        val distance = if (packageName == "sinet.startup.inDriver") {
-            // inDrive has its own trip-distance format ("~ X كلم" on the
-            // offer card, see indriveTripDistanceKm). Uber / DiDi keep
-            // using the existing extractTripDistance path.
-            val trip = indriveTripDistanceKm(text) ?: return null
-            val pickup = pickupMax(text)
-            combineWithPickup(trip, pickup, includePickupDistance = true)
-        } else {
-            extractTripDistance(text, includePickupDistance = true) ?: return null
-        }
+        val distance = extractTripDistance(text, includePickupDistance = true) ?: return null
         if (price <= 0.0 || distance <= 0.0) return null
         return Pair(price, distance)
     }
@@ -482,42 +465,6 @@ class UberAccessibilityService : AccessibilityService() {
         return null
     }
 
-    // ----------------------------------------------------------------
-    // inDrive-specific trip distance
-    //
-    // inDrive's offer card layout is different from Uber's:
-    //   * The price is a bare "120 ج.م" at the top.
-    //   * Below it: "~ 2.9 كلم" – the trip distance.
-    //   * Below THAT: three counter-offers (144/132/126 ج.م).
-    //
-    // Uber's "first <number> ج.م" already picks 120 (the offer price,
-    // see findPrice above). For the trip distance we use a dedicated
-    // "~ X كلم" pattern – inDrive's actual format. As a fallback we
-    // also accept a labelled trip distance or the smallest bare
-    // "X كلم" (in case the tilde is missing).
-    // ----------------------------------------------------------------
-    private val indriveTripTilde = Pattern.compile(
-        "~\\s*" + number + "\\s*(?:كم|كلم|km|ميل|mi)",
-        Pattern.CASE_INSENSITIVE
-    )
-
-    private fun indriveTripDistanceKm(text: String): Double? {
-        val tilde = indriveTripTilde.matcher(text)
-        if (tilde.find()) {
-            return tilde.group(1)?.replace(',', '.')?.toDoubleOrNull()
-        }
-        // Fall back to any labelled trip distance.
-        maxFrom(tripDistanceAny, text)?.let { return it }
-        // Last resort: smallest bare "X كلم" (the trip distance is the
-        // smallest distance on the offer card; counter-offers do not
-        // carry a distance).
-        val bare = collect(bareDistance, text)
-        if (bare.isEmpty()) return null
-        var best = bare.first().value
-        for (h in bare) if (h.value < best) best = h.value
-        return best
-    }
-
     private fun normalizeDigits(value: String): String {
         val arabic = "٠١٢٣٤٥٦٧٨٩"
         val persian = "۰۱۲۳۴۵۶۷۸۹"
@@ -614,11 +561,7 @@ class UberAccessibilityService : AccessibilityService() {
         val fareAfterDiscount = price * (1.0 - discount / 100.0)
         val net = fareAfterDiscount / distance
         val suitable = net >= minPrice
-        val appLabel = when (packageName) {
-            "com.didiglobal.driver" -> "DiDi"
-            "sinet.startup.inDriver" -> "inDrive"
-            else -> "Uber"
-        }
+        val appLabel = "Uber"
 
         val signature = "$packageName|${fmt(price)}|${fmt(distance)}|${fmt(net)}|$suitable"
         val now = System.currentTimeMillis()
