@@ -81,10 +81,24 @@ class UberAccessibilityService : AccessibilityService() {
     )
 
     // Pickup labels – these are NEVER used as the trip distance unless
-    // the caller explicitly opts in via includePickupDistance.
-    private val pickupAr = Pattern.compile(
-        "(?:على\\s+بعد|يبعد|يَبْعُد|الوصول\\s+إلى|بعد\\s+عنك)[^0-9٠-٩۰-۹]*" + number +
-            "\\s*(?:كم|كلم|km|ميل|mi)",
+    // the caller explicitly opts in via includePickupDistance. Each
+    // pattern is anchored to the actual numeric phrase Uber / inDrive /
+    // DiDi use, so we don't accidentally swallow the trip distance.
+    private val pickupArOnDistance = Pattern.compile(
+        "على\\s+بعد\\s+[0-9٠-٩۰-۹]+\\s*د\\s*" +
+            "\\(?\\s*" + number + "\\s*\\)?\\s*(?:كم|كلم|km|ميل|mi)",
+        Pattern.CASE_INSENSITIVE
+    )
+    private val pickupArMinutesOnly = Pattern.compile(
+        "على\\s+بعد\\s+[0-9٠-٩۰-۹]+\\s*(?:د(?:قيقة)?|دق|د)\\b",
+        Pattern.CASE_INSENSITIVE
+    )
+    private val pickupArYibad = Pattern.compile(
+        "يبعد\\s+" + number + "\\s*(?:كم|كلم|km|ميل|mi)",
+        Pattern.CASE_INSENSITIVE
+    )
+    private val pickupArBaad = Pattern.compile(
+        "بعد\\s+عنك\\s+" + number + "\\s*(?:كم|كلم|km|ميل|mi)",
         Pattern.CASE_INSENSITIVE
     )
     private val pickupEn = Pattern.compile(
@@ -359,12 +373,14 @@ class UberAccessibilityService : AccessibilityService() {
 
     private fun pickupMax(text: String): Double? {
         var best: Double? = null
-        for (h in collect(pickupAr, text)) {
-            if (best == null || h.value > best) best = h.value
+        // Patterns that already include the number
+        for (re in arrayOf(pickupArOnDistance, pickupArYibad, pickupArBaad, pickupEn)) {
+            for (h in collect(re, text)) {
+                if (best == null || h.value > best) best = h.value
+            }
         }
-        for (h in collect(pickupEn, text)) {
-            if (best == null || h.value > best) best = h.value
-        }
+        // "على بعد 5 د" alone (without the distance) – we can't read the
+        // distance from it directly, so skip.
         return best
     }
 
@@ -377,7 +393,10 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     private fun pickBareClosestToPrice(text: String, pricePos: Int?, ignorePickup: Double?): Double? {
-        val pickupRanges = collect(pickupAr, text) + collect(pickupEn, text)
+        val pickupRanges = collect(pickupArOnDistance, text) +
+            collect(pickupArYibad, text) +
+            collect(pickupArBaad, text) +
+            collect(pickupEn, text)
         val bare = collect(bareDistance, text).filter { b ->
             pickupRanges.none { it.start < b.end && b.start < it.end }
         }
