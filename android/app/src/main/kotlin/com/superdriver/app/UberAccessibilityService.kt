@@ -32,8 +32,7 @@ class UberAccessibilityService : AccessibilityService() {
     companion object {
         @Volatile var latestText: String = ""
             private set
-        // Last raw text the OCR pass produced (used by the debug screen
-        // so we can see what ML Kit saw on the live inDrive map).
+        // Last raw text produced by the OCR pass for the debug screen.
         @Volatile var latestOcrText: String = ""
             private set
         @Volatile private var instance: UberAccessibilityService? = null
@@ -84,10 +83,8 @@ class UberAccessibilityService : AccessibilityService() {
         Pattern.CASE_INSENSITIVE
     )
 
-    // Pickup labels – these are NEVER used as the trip distance unless
-    // the caller explicitly opts in via includePickupDistance. Each
-    // pattern is anchored to the actual numeric phrase Uber / inDrive /
-    // DiDi use, so we don't accidentally swallow the trip distance.
+    // Pickup labels are kept separate from trip-distance labels so the
+    // parser does not accidentally swallow the trip distance.
     private val pickupArOnDistance = Pattern.compile(
         "على\\s+بعد\\s+[0-9٠-٩۰-۹]+\\s*د\\s*" +
             "\\(?\\s*" + number + "\\s*\\)?\\s*(?:كم|كلم|km|ميل|mi)",
@@ -111,16 +108,13 @@ class UberAccessibilityService : AccessibilityService() {
         Pattern.CASE_INSENSITIVE
     )
 
-    // Bare "X km" – a fallback for inDrive / DiDi offer rows where the
-    // trip distance is just a number next to the price.
+    // Bare "X km" fallback where the trip distance is next to the price.
     private val bareDistance = Pattern.compile(
         "~?\\s*" + number + "\\s*(?:كم|كلم|km|ميل|mi)",
         Pattern.CASE_INSENSITIVE
     )
 
-    // Price patterns – labelled fare first, then the LARGEST
-    // "<number> ج.م" / "<number> EGP" so the offer price wins over
-    // suggested counter-offers in inDrive.
+    // Price patterns – labelled fare first, then a bare currency amount.
     private val priceByLabel = Pattern.compile(
         "(?:السعر|سعر\\s+الرحلة|المجموع|الإجمالي|المبلغ|القبول\\s+مقابل|" +
             "total|fare|trip\\s+price|price)\\s*[:：\\-]?\\s*" + number +
@@ -355,9 +349,7 @@ class UberAccessibilityService : AccessibilityService() {
         // 2. Uber's duration block – the inner distance is the trip.
         maxFrom(tripInDurationAr, text)?.let { return combineWithPickup(it, pickup, includePickupDistance) }
 
-        // 3. Bare "X km" – this is inDrive's "1.3 كم" and similar.
-        //    Use only if there's no pickup conflict and we have a price
-        //    position to anchor against.
+        // 3. Bare distance fallback, used only when it is not part of a pickup label.
         val pricePos = firstPricePos(text)
         val bare = pickBareClosestToPrice(text, pricePos, pickup)
         if (bare != null) {
@@ -434,9 +426,7 @@ class UberAccessibilityService : AccessibilityService() {
             return null
         }
         if (pricePos == null) {
-            // No price anchor – take the smallest bare value (matches the
-            // inDrive / DiDi UX where the trip distance is the smaller
-            // number at the start of the offer row).
+            // No price anchor – take the smallest remaining distance.
             var v = bare.first().value
             for (h in bare) if (h.value < v) v = h.value
             return v
@@ -456,10 +446,7 @@ class UberAccessibilityService : AccessibilityService() {
         val labeled = priceByLabel.matcher(text)
         if (labeled.find()) return labeled.group(1)?.replace(',', '.')?.toDoubleOrNull()
         // No labelled fare – use the FIRST bare "<number> EGP" match.
-        // We can't use the largest because inDrive shows suggested
-        // counter-offers (144/132/126 EGP) that are LARGER than the
-        // actual offer price (120 EGP). Taking the first match means
-        // we read the offer price, which is the headline number.
+        // Taking the first match reads the headline offer price.
         val after = priceAfterNumber.matcher(text)
         if (after.find()) return after.group(1)?.replace(',', '.')?.toDoubleOrNull()
         return null

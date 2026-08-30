@@ -157,8 +157,8 @@ class PriceCalculator {
       ..addAll(pickupAr)
       ..addAll(pickupEn);
 
-    // 6. Bare "X km" – a fallback for inDrive / DiDi offer rows. We keep
-    //    the position so we can pick the one closest to the price.
+    // 6. Bare "X km" fallback. Keep the position so we can pick the one
+    //    closest to the price.
     final bareAll = _allHits(
         RegExp(
           r'~?\s*' + _number + r'\s*(?:كم|كلم|km|ميل|mi)',

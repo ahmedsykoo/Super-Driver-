@@ -6,7 +6,7 @@
 - Accessibility button opens the Android Accessibility settings, attempting the service-specific page first and falling back to the universal page.
 - Accessibility status is queried from Android after returning to the app.
 - Monitoring is stored natively and can only be enabled when both required Android prerequisites are actually enabled.
-- The native AccessibilityService reads visible text/content descriptions from Uber, DiDi Captain and inDrive.
+- The native AccessibilityService reads visible text/content descriptions from Uber Driver.
 - The trip parser prefers the distance explicitly labelled as the trip distance, avoiding the pickup distance when both appear on the offer card.
 - The floating result now shows app, fare, distance, gross price/km, net price/km and suitable/not-suitable status.
 - The floating result is dismissed when the ride-app offer disappears or another unsupported app becomes active.
