@@ -277,7 +277,9 @@ class UberAccessibilityService : AccessibilityService() {
             7.5
         ).coerceAtLeast(0.0)
         val discount = readDouble(
-            prefs.all["flutter.discount_$settingsKey"] ?: prefs.all["flutter.uberDiscount"],
+            prefs.all["flutter.discount_$settingsKey"]
+                ?: prefs.all["flutter.discount_${settingsKey}_percent"]
+                ?: prefs.all["flutter.uberDiscount"],
             0.0
         ).coerceIn(0.0, 100.0)
 
@@ -301,7 +303,7 @@ class UberAccessibilityService : AccessibilityService() {
         val details = root.findViewWithTag<TextView>("details")
 
         title.text = if (suitable) "✓ مناسب • $appLabel" else "✕ غير مناسب • $appLabel"
-        details.text = "${fmt(price)} ج.م  •  ${fmt(distance)} كم\n${fmt(gross)} ج.م/كم  •  بعد الخصم ${fmt(net)} ج.م/كم"
+        details.text = "${fmt(price)} ج.م  •  ${fmt(distance)} كم\n${fmt(gross)} ج.م/كم  •  خصم ${fmt(discount)}%  •  بعد الخصم ${fmt(net)} ج.م/كم"
         title.setTextColor(Color.WHITE)
         details.setTextColor(Color.WHITE)
         root.setBackgroundColor(if (suitable) Color.rgb(20, 132, 72) else Color.rgb(198, 48, 48))
@@ -402,7 +404,7 @@ class UberAccessibilityService : AccessibilityService() {
 
     private fun readDouble(value: Any?, fallback: Double): Double = when (value) {
         is Number -> value.toDouble()
-        is String -> value.replace(',', '.').toDoubleOrNull() ?: fallback
+        is String -> value.replace("%", "").replace(',', '.').trim().toDoubleOrNull() ?: fallback
         else -> fallback
     }
 

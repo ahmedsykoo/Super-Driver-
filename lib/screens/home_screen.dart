@@ -245,9 +245,10 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   Future<void> _save() async {
     final p = await SharedPreferences.getInstance();
     final min = double.tryParse(_min.text.replaceAll(',', '.')) ?? 7.5;
-    final discount = (double.tryParse(_discount.text.replaceAll(',', '.')) ?? 0).clamp(0, 100).toDouble();
+    final discount = (double.tryParse(_discount.text.replaceAll('%', '').replaceAll(',', '.').trim()) ?? 0).clamp(0, 100).toDouble();
     await p.setDouble('minPrice_$_key', min);
     await p.setDouble('discount_$_key', discount);
+    await p.setDouble('discount_${_key}_percent', discount);
     await p.setBool('includePickupDistance_$_key', _includePickupDistance);
     await p.setBool('enabled_$_key', _enabled);
     if (!mounted) return;
