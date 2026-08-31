@@ -190,19 +190,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ],
       ]))),
       const SizedBox(height: 18),
-      const Text('إعدادات Uber', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+      const Text('إعدادات خدمات أوبر', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
       const SizedBox(height: 8),
-      _appCard('Uber', Icons.local_taxi, Colors.black87),
+      _appCard('UberX', Icons.local_taxi, Colors.black87, settingsKey: 'uberx'),
+      _appCard('UberX Saver', Icons.savings, Colors.black87, settingsKey: 'uberx_saver'),
+      _appCard('UberX أولوية', Icons.bolt, Colors.black87, settingsKey: 'uberx_priority'),
+      _appCard('Intercity', Icons.route, Colors.black87, settingsKey: 'intercity'),
+      const SizedBox(height: 10),
+      _appCard('Uber (افتراضي)', Icons.taxi_alert, Colors.blueGrey, settingsKey: 'uber'),
     ]);
   }
 
-  Widget _appCard(String app, IconData icon, Color color) => Card(
+  Widget _appCard(String app, IconData icon, Color color, {required String settingsKey}) => Card(
     child: ListTile(
       leading: CircleAvatar(backgroundColor: color, child: Icon(icon, color: Colors.white)),
       title: Text('إعدادات $app', style: const TextStyle(fontWeight: FontWeight.bold)),
       subtitle: const Text('الحد الأدنى، الخصم، ومسافة الوصول'),
       trailing: const Icon(Icons.chevron_left),
-      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AppSettingsPage(appName: app))),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => AppSettingsPage(appName: app, settingsKey: settingsKey),
+        ),
+      ),
     ),
   );
 
@@ -219,7 +228,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
 class AppSettingsPage extends StatefulWidget {
   final String appName;
-  const AppSettingsPage({super.key, required this.appName});
+  final String? settingsKey;
+  const AppSettingsPage({super.key, required this.appName, this.settingsKey});
 
   @override
   State<AppSettingsPage> createState() => _AppSettingsPageState();
@@ -235,7 +245,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   @override
   void initState() {
     super.initState();
-    _key = widget.appName.toLowerCase().replaceAll(' ', '_');
+    _key = widget.settingsKey ?? widget.appName.toLowerCase().replaceAll(' ', '_');
     _load();
   }
 
