@@ -16,4 +16,13 @@ void main() {
     expect(trip.pricePerKmAfterDiscount(150), 0);
     expect(trip.pricePerKmAfterDiscount(-10), 10);
   });
+
+  test('serializes and restores a trip record', () {
+    final original = TripData(price: 120.5, distance: 9.25, timestamp: DateTime(2026, 9, 1, 12, 30));
+    final restored = TripData.fromJson(original.toJson());
+    expect(restored.price, original.price);
+    expect(restored.distance, original.distance);
+    expect(restored.timestamp, original.timestamp);
+  });
+
 }
