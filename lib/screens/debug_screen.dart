@@ -41,6 +41,8 @@ class DebugScreen extends StatefulWidget {
 }
 
 class _DebugScreenState extends State<DebugScreen> {
+  bool get isArabic => Localizations.localeOf(context).languageCode == 'ar';
+  String _tr(String ar, String en) => isArabic ? ar : en;
   String _rawText = '';
   String _ocrText = '';
   bool _loading = true;
@@ -59,8 +61,8 @@ class _DebugScreenState extends State<DebugScreen> {
     final text = await DebugBridge.getLatestText();
     final ocr = await DebugBridge.getOcrText();
     final price = PriceCalculator.extractPrice(text);
-    // 'both' = pickup + trip, like the live service does for all apps
-    final trip = PriceCalculator.extractTripDistance(text, policy: 'both');
+    // The default setting analyzes the trip distance without pickup distance.
+    final trip = PriceCalculator.extractTripDistance(text, policy: 'strict');
     String perKm = '—';
     if (price != null && trip != null && trip > 0) {
       perKm = (price / trip).toStringAsFixed(2);
@@ -80,12 +82,12 @@ class _DebugScreenState extends State<DebugScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Debug — Accessibility Text'),
+        title: Text(_tr('تشخيص — نص الوصول', 'Debug — Accessibility text')),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loading ? null : _refresh,
-            tooltip: 'Refresh',
+            tooltip: _tr('تحديث', 'Refresh'),
           ),
         ],
       ),
@@ -96,27 +98,27 @@ class _DebugScreenState extends State<DebugScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _label('Raw accessibility text'),
+                  _label(_tr('نص الوصول الخام', 'Raw accessibility text')),
                   const SizedBox(height: 6),
                   SelectableText(
-                    _rawText.isEmpty ? '(empty — open Uber first, then come back)' : _rawText,
+                    _rawText.isEmpty ? _tr('(فارغ — افتح Uber أولًا ثم ارجع)', '(empty — open Uber first, then come back)') : _rawText,
                     style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
                   ),
                   const SizedBox(height: 24),
-                  _label('Extracted price (EGP)'),
+                  _label(_tr('السعر المستخرج (ج.م)', 'Extracted price (EGP)')),
                   Text(_extractedPrice, style: _valueStyle()),
                   const SizedBox(height: 16),
-                  _label('Extracted trip distance (km)'),
+                  _label(_tr('مسافة الرحلة المستخرجة (كم)', 'Extracted trip distance (km)')),
                   Text(_extractedTrip, style: _valueStyle()),
                   const SizedBox(height: 16),
-                  _label('Computed EGP/km'),
+                  _label(_tr('الحساب ج.م/كم', 'Computed EGP/km')),
                   Text(_perKm, style: _valueStyle()),
                   const SizedBox(height: 24),
-                  _label('OCR text + bounding boxes (live screenshot)'),
+                  _label(_tr('حالة OCR', 'OCR status')),
                   const SizedBox(height: 6),
                   SelectableText(
                     _ocrText.isEmpty
-                        ? '(empty — open Uber, wait 3-4 seconds, then tap Refresh)'
+                        ? _tr('(OCR غير مفعّل حاليًا؛ يعتمد التطبيق على نص الوصول)', '(OCR is currently disabled; the app uses accessibility text)')
                         : _ocrText,
                     style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
                   ),
@@ -128,14 +130,12 @@ class _DebugScreenState extends State<DebugScreen> {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: Colors.amber.shade700),
                     ),
-                    child: const Text(
-                      'How to use:\n'
-                      '  1. Open Uber and bring up a real offer card.\n'
-                      '  2. Press Home (don\'t close the app).\n'
-                      '  3. Re-open Super Driver and tap Debug.\n'
-                      '  4. Tap Refresh and copy the raw text + OCR text.\n'
-                      '  5. Send the screenshot to the developer.',
-                      style: TextStyle(fontSize: 13),
+                    child: Text(
+                      _tr(
+                        'طريقة الاستخدام:\n1. افتح Uber وأظهر عرضًا حقيقيًا.\n2. اضغط Home بدون إغلاق التطبيق.\n3. افتح Super Driver واضغط تشخيص.\n4. اضغط تحديث وانسخ نص الوصول الخام.\n5. أرسل لقطة الشاشة للمطور.',
+                        'How to use:\n1. Open Uber and bring up a real offer card.\n2. Press Home without closing the app.\n3. Re-open Super Driver and tap Debug.\n4. Tap Refresh and copy the raw accessibility text.\n5. Send the screenshot to the developer.',
+                      ),
+                      style: const TextStyle(fontSize: 13),
                     ),
                   ),
                 ],
