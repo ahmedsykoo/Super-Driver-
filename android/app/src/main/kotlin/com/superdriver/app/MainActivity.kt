@@ -33,7 +33,7 @@ class MainActivity : FlutterActivity() {
                             result.success(setMonitoringEnabled(enabled))
                         }
                         "getAccessibilityText" -> result.success(UberAccessibilityService.latestText)
-                        "getOcrText" -> result.success("")
+                        "getOcrText" -> result.success(UberAccessibilityService.latestOcrText)
                         else -> result.notImplemented()
                     }
                 } catch (e: Exception) {
