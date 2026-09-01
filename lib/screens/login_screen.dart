@@ -10,6 +10,8 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  bool get isArabic => Localizations.localeOf(context).languageCode == 'ar';
+  String _tr(String ar, String en) => isArabic ? ar : en;
   final _phone = TextEditingController();
   final _password = TextEditingController();
   bool _obscure = true;
@@ -20,7 +22,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final password = _password.text;
     if (phone.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اكتب رقم الهاتف وكلمة المرور أولاً')),
+        SnackBar(content: Text(_tr('اكتب رقم الهاتف وكلمة المرور أولاً', 'Enter phone number and password first'))),
       );
       return;
     }
@@ -41,7 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
       child: Scaffold(
         body: Center(
           child: SingleChildScrollView(
@@ -55,23 +57,23 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 16),
                     const Text('Super Driver', style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
-                    const Text('سجّل الدخول للمتابعة', style: TextStyle(fontSize: 18)),
+                    Text(_tr('سجّل الدخول للمتابعة', 'Sign in to continue'), style: const TextStyle(fontSize: 18)),
                     const SizedBox(height: 28),
                     TextField(
                       controller: _phone,
                       keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(labelText: 'رقم الهاتف', prefixIcon: Icon(Icons.phone), border: OutlineInputBorder()),
+                      decoration: InputDecoration(labelText: _tr('رقم الهاتف', 'Phone number'), prefixIcon: const Icon(Icons.phone), border: const OutlineInputBorder()),
                     ),
                     const SizedBox(height: 14),
                     TextField(
                       controller: _password,
                       obscureText: _obscure,
-                      decoration: InputDecoration(labelText: 'كلمة المرور', prefixIcon: const Icon(Icons.lock), border: const OutlineInputBorder(), suffixIcon: IconButton(icon: Icon(Icons.visibility), onPressed: () => setState(() => _obscure = !_obscure))),
+                      decoration: InputDecoration(labelText: _tr('كلمة المرور', 'Password'), prefixIcon: const Icon(Icons.lock), border: const OutlineInputBorder(), suffixIcon: IconButton(icon: Icon(Icons.visibility), onPressed: () => setState(() => _obscure = !_obscure))),
                     ),
                     const SizedBox(height: 22),
-                    SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: _loading ? null : _login, icon: const Icon(Icons.login), label: Text(_loading ? 'جارٍ الدخول...' : 'تسجيل الدخول'))),
+                    SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: _loading ? null : _login, icon: const Icon(Icons.login), label: Text(_loading ? _tr('جارٍ الدخول...', 'Signing in...') : _tr('تسجيل الدخول', 'Sign in')))),
                     const SizedBox(height: 10),
-                    const Text('هذه النسخة التجريبية تحفظ تسجيل الدخول على الجهاز.', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+                    Text(_tr('هذه النسخة التجريبية تحفظ تسجيل الدخول على الجهاز.', 'This demo stores your sign-in locally on the device.'), textAlign: TextAlign.center, style: const TextStyle(color: Colors.grey)),
                   ],
                 ),
               ),
