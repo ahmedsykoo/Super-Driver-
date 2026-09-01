@@ -59,6 +59,7 @@ class UberAccessibilityService : AccessibilityService() {
         ServiceProfile("uberx_priority", "UberX أولوية", listOf("uberx priority", "أولوية uberx", "priority"), 6.8),
         ServiceProfile("intercity", "Intercity", listOf("intercity", "بين المدن"), 8.0),
         ServiceProfile("uberx", "UberX", listOf("uberx", "uber x"), 6.0),
+        ServiceProfile("uber", "Uber", listOf("uber", "أوبر"), 7.5),
     )
 
     private val number = "([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)"
@@ -314,6 +315,11 @@ class UberAccessibilityService : AccessibilityService() {
         return prefs.all["flutter.enabled_${settingsKey(packageName)}"] as? Boolean ?: true
     }
 
+    private fun isPickupDistanceEnabled(settingsKey: String): Boolean {
+        val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+        return prefs.all["flutter.includePickupDistance_$settingsKey"] as? Boolean ?: false
+    }
+
     private fun collectCurrentWindowText(): String {
         val out = StringBuilder()
         val activeRoot = rootInActiveWindow
@@ -359,12 +365,11 @@ class UberAccessibilityService : AccessibilityService() {
     private fun parseTrip(raw: String, packageName: String): Pair<Double, Double>? {
         val text = normalizeDigits(raw)
         val price = findPrice(text) ?: return null
-        // Pickup distance is ALWAYS added to the trip distance so the
-        // price/km reflects the total distance the driver will travel
-        // (pickup + trip). The per-app includePickupDistance setting is
-        // kept for back-compat with the settings UI but is no longer
-        // consulted here.
-        val distance = extractTripDistance(text, includePickupDistance = true) ?: return null
+        // Respect the per-service setting: the configured pickup distance
+        // is added only when the driver enables that option.
+        val profile = detectServiceProfile(text)
+        val includePickupDistance = isPickupDistanceEnabled(profile.settingsKey)
+        val distance = extractTripDistance(text, includePickupDistance) ?: return null
         if (price <= 0.0 || distance <= 0.0) return null
         return Pair(price, distance)
     }
@@ -398,8 +403,7 @@ class UberAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Adds the pickup distance to the trip distance when the user opted
-     * in (or by default — pickup is now always added to the trip).
+     * Adds the pickup distance only when the user enabled the option.
      */
     private fun combineWithPickup(trip: Double, pickup: Double?, includePickupDistance: Boolean): Double {
         if (includePickupDistance && pickup != null && pickup > 0) return trip + pickup
@@ -456,11 +460,6 @@ class UberAccessibilityService : AccessibilityService() {
             pickupRanges.none { it.start < b.end && b.start < it.end }
         }
         if (bare.isEmpty()) return null
-        if (ignorePickup != null) {
-            // The caller asked for pickup+pickup-distance mode; the bare
-            // fallback is irrelevant.
-            return null
-        }
         if (pricePos == null) {
             // No price anchor – take the smallest remaining distance.
             var v = bare.first().value
