@@ -78,15 +78,6 @@ class _SuperDriverAppState extends State<SuperDriverApp> {
         onPrimary: Colors.white,
         onSurface: Color(0xFFF8FAFC),
       ),
-      cardTheme: CardTheme(
-        color: darkCard,
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: const BorderSide(color: Color(0xFF334155), width: 1),
-        ),
-        margin: const EdgeInsets.only(bottom: 12),
-      ),
       appBarTheme: const AppBarTheme(
         backgroundColor: darkBg,
         elevation: 0,
@@ -129,16 +120,6 @@ class _SuperDriverAppState extends State<SuperDriverApp> {
         surfaceContainerHighest: Color(0xFFE2E8F0),
         onPrimary: Colors.white,
         onSurface: Color(0xFF0F172A),
-      ),
-      cardTheme: CardTheme(
-        color: Colors.white,
-        elevation: 1,
-        shadowColor: Colors.black12,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: const BorderSide(color: Color(0xFFE2E8F0), width: 1),
-        ),
-        margin: const EdgeInsets.only(bottom: 12),
       ),
       appBarTheme: const AppBarTheme(
         backgroundColor: Color(0xFFF1F5F9),

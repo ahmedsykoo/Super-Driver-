@@ -231,11 +231,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(16),
-                boxShadow: [
+                boxShadow: const [
                   BoxShadow(
-                    color: const Color(0xFFEAB308).withOpacity(0.3),
+                    color: Color(0x4DEAB308),
                     blurRadius: 12,
-                    offset: const Offset(0, 4),
+                    offset: Offset(0, 4),
                   ),
                 ],
               ),
@@ -341,7 +341,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         border: Border.all(color: borderColor, width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(widget.isDark ? 0.25 : 0.05),
+            color: widget.isDark ? const Color(0x40000000) : const Color(0x0D000000),
             blurRadius: 18,
             offset: const Offset(0, 6),
           ),
@@ -370,7 +370,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   color: isRunning ? const Color(0xFF10B981) : Colors.redAccent,
                   boxShadow: [
                     BoxShadow(
-                      color: (isRunning ? const Color(0xFF10B981) : Colors.redAccent).withOpacity(0.6),
+                      color: isRunning ? const Color(0x9910B981) : const Color(0x99FF5252),
                       blurRadius: 8,
                       spreadRadius: 2,
                     ),
@@ -822,7 +822,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         leading: Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.15),
+            color: color.withAlpha(38),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(icon, color: color, size: 22),
@@ -960,7 +960,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: themeColor.withOpacity(0.15),
+                      color: themeColor.withAlpha(38),
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Icon(widget.icon ?? Icons.local_taxi_rounded, color: themeColor, size: 32),
