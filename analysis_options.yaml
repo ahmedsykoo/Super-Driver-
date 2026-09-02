@@ -1,5 +1,10 @@
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  exclude:
+    - "build/**"
+    - "web_preview/**"
+
 linter:
   rules:
     avoid_print: false

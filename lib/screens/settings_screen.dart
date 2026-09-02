@@ -1,1 +1,0 @@
-// Settings are integrated into HomeScreen in this fixed build.
