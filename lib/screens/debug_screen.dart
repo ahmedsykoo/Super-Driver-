@@ -192,9 +192,9 @@ class _DebugScreenState extends State<DebugScreen> {
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF064E3B).withOpacity(0.3),
+                        color: const Color(0x4D064E3B),
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFF10B981).withOpacity(0.4)),
+                        border: Border.all(color: const Color(0x6610B981)),
                       ),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
