@@ -33,4 +33,25 @@ void main() {
     expect(PriceCalculator.extractTripDistance(text, policy: 'bare'), 8);
   });
 
+  test('handles Arabic offer with acceptance button and duration without prefix', () {
+    const text = 'القبول مقابل ١٥٢٫٥٠ ج.م على بعد ١٦ د (١٣٫٤ كلم) مشوار ٢١ د (١٦٫٩ كلم)';
+    expect(PriceCalculator.extractPrice(text), 152.5);
+    expect(PriceCalculator.extractTripDistance(text), 16.9);
+  });
+
+  test('handles prefix currency like EGP and ج.م before amount', () {
+    const text1 = 'EGP 95.00 6 min (2.1 km) away 18 min (12.4 km) trip';
+    expect(PriceCalculator.extractPrice(text1), 95.0);
+    expect(PriceCalculator.extractTripDistance(text1), 12.4);
+
+    const text2 = 'ج.م 120.00 على بعد 5 د (2.0 كم) مشوار 15 د (10.0 كم)';
+    expect(PriceCalculator.extractPrice(text2), 120.0);
+    expect(PriceCalculator.extractTripDistance(text2), 10.0);
+  });
+
+  test('handles invisible bidi characters and unicode spaces', () {
+    const text = '\u200E152.00\u200F\u00A0\u200Eج.م\u200F على بعد 5 د (1.5 كم) مشوار 15 د (8.5 كم)';
+    expect(PriceCalculator.extractPrice(text), 152.0);
+    expect(PriceCalculator.extractTripDistance(text), 8.5);
+  });
 }
