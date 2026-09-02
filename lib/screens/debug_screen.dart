@@ -2,11 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/price_calculator.dart';
 
-// Reads the latest accessibility-tree text published by the
-// UberAccessibilityService via the existing MethodChannel set up by
-// MainActivity.kt (channel "com.superdriver/accessibility"). Returns
-// "" if the service has not pushed any text yet or the user hasn't
-// enabled the accessibility service.
 class DebugBridge {
   static const _channel = MethodChannel('com.superdriver/accessibility');
 
@@ -61,8 +56,8 @@ class _DebugScreenState extends State<DebugScreen> {
     final text = await DebugBridge.getLatestText();
     final ocr = await DebugBridge.getOcrText();
     final price = PriceCalculator.extractPrice(text);
-    // The default setting analyzes the trip distance without pickup distance.
-    final trip = PriceCalculator.extractTripDistance(text, policy: 'strict');
+    final trip = PriceCalculator.extractTripDistance(text, policy: 'strict') ??
+        PriceCalculator.extractTripDistance(text, policy: 'bare');
     String perKm = '—';
     if (price != null && trip != null && trip > 0) {
       perKm = (price / trip).toStringAsFixed(2);
@@ -71,87 +66,173 @@ class _DebugScreenState extends State<DebugScreen> {
     setState(() {
       _rawText = text;
       _ocrText = ocr;
-      _extractedPrice = price?.toStringAsFixed(2) ?? '—';
-      _extractedTrip = trip?.toStringAsFixed(2) ?? '—';
-      _perKm = perKm;
+      _extractedPrice = price != null ? '${price.toStringAsFixed(2)} EGP' : '—';
+      _extractedTrip = trip != null ? '${trip.toStringAsFixed(2)} km' : '—';
+      _perKm = perKm != '—' ? '$perKm EGP/km' : '—';
       _loading = false;
     });
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_tr('تشخيص — نص الوصول', 'Debug — Accessibility text')),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loading ? null : _refresh,
-            tooltip: _tr('تحديث', 'Refresh'),
-          ),
-        ],
+  void _copyText(String text) {
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: const Color(0xFF10B981),
+        behavior: SnackBarBehavior.floating,
+        content: Text(_tr('تم نسخ النص إلى الحافظة', 'Text copied to clipboard')),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _label(_tr('نص الوصول الخام', 'Raw accessibility text')),
-                  const SizedBox(height: 6),
-                  SelectableText(
-                    _rawText.isEmpty ? _tr('(فارغ — افتح Uber أولًا ثم ارجع)', '(empty — open Uber first, then come back)') : _rawText,
-                    style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-                  ),
-                  const SizedBox(height: 24),
-                  _label(_tr('السعر المستخرج (ج.م)', 'Extracted price (EGP)')),
-                  Text(_extractedPrice, style: _valueStyle()),
-                  const SizedBox(height: 16),
-                  _label(_tr('مسافة الرحلة المستخرجة (كم)', 'Extracted trip distance (km)')),
-                  Text(_extractedTrip, style: _valueStyle()),
-                  const SizedBox(height: 16),
-                  _label(_tr('الحساب ج.م/كم', 'Computed EGP/km')),
-                  Text(_perKm, style: _valueStyle()),
-                  const SizedBox(height: 24),
-                  _label(_tr('حالة OCR', 'OCR status')),
-                  const SizedBox(height: 6),
-                  SelectableText(
-                    _ocrText.isEmpty
-                        ? _tr('(OCR غير مفعّل حاليًا؛ يعتمد التطبيق على نص الوصول)', '(OCR is currently disabled; the app uses accessibility text)')
-                        : _ocrText,
-                    style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                  ),
-                  const SizedBox(height: 24),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.amber.shade100,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.amber.shade700),
-                    ),
-                    child: Text(
-                      _tr(
-                        'طريقة الاستخدام:\n1. افتح Uber وأظهر عرضًا حقيقيًا.\n2. اضغط Home بدون إغلاق التطبيق.\n3. افتح Super Driver واضغط تشخيص.\n4. اضغط تحديث وانسخ نص الوصول الخام.\n5. أرسل لقطة الشاشة للمطور.',
-                        'How to use:\n1. Open Uber and bring up a real offer card.\n2. Press Home without closing the app.\n3. Re-open Super Driver and tap Debug.\n4. Tap Refresh and copy the raw accessibility text.\n5. Send the screenshot to the developer.',
-                      ),
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                  ),
-                ],
-              ),
-            ),
     );
   }
 
-  Widget _label(String s) => Text(
-    s,
-    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black54),
-  );
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(_tr('تشخيص قراءة الشاشة', 'Screen Diagnostics')),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.refresh_rounded, color: Color(0xFF38BDF8)),
+              onPressed: _loading ? null : _refresh,
+              tooltip: _tr('تحديث البيانات', 'Refresh Data'),
+            ),
+          ],
+        ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator(color: Color(0xFF0284C7)))
+            : SingleChildScrollView(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Extracted Values Highlights
+                    Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E293B),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: const Color(0xFF334155)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.analytics_outlined, color: Color(0xFF10B981)),
+                              const SizedBox(width: 8),
+                              Text(
+                                _tr('نتائج التحليل الفوري', 'Live Extracted Results'),
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          _resultRow(_tr('السعر المستخرج:', 'Extracted Fare:'), _extractedPrice, const Color(0xFF34D399)),
+                          const Divider(color: Color(0xFF334155), height: 16),
+                          _resultRow(_tr('المسافة المستخرجة:', 'Extracted Distance:'), _extractedTrip, const Color(0xFF38BDF8)),
+                          const Divider(color: Color(0xFF334155), height: 16),
+                          _resultRow(_tr('المعدل المحسوب:', 'Computed Rate:'), _perKm, const Color(0xFFFDE047)),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
 
-  TextStyle _valueStyle() => const TextStyle(
-    fontSize: 22,
-    fontWeight: FontWeight.bold,
-    fontFamily: 'monospace',
-  );
+                    // Raw Accessibility Text
+                    Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E293B),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: const Color(0xFF334155)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.code_rounded, color: Color(0xFF38BDF8)),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    _tr('نص الوصول المقروء (Raw Text)', 'Captured Accessibility Text'),
+                                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                                  ),
+                                ],
+                              ),
+                              if (_rawText.isNotEmpty)
+                                IconButton(
+                                  icon: const Icon(Icons.copy_rounded, size: 20, color: Color(0xFF94A3B8)),
+                                  onPressed: () => _copyText(_rawText),
+                                  tooltip: _tr('نسخ النص', 'Copy Text'),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0F172A),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: const Color(0xFF334155)),
+                            ),
+                            child: SelectableText(
+                              _rawText.isEmpty
+                                  ? _tr('(لا يوجد نص حالياً — افتح أوبر وارجع للتطبيق ثم اضغط تحديث)', '(No text captured yet — open Uber with a trip offer and tap refresh)')
+                                  : _rawText,
+                              style: const TextStyle(fontFamily: 'monospace', fontSize: 13, color: Color(0xFFCBD5E1), height: 1.5),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+
+                    // Instructions Card
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF064E3B).withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFF10B981).withOpacity(0.4)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.info_outline_rounded, color: Color(0xFF34D399), size: 22),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              _tr(
+                                'خطوات اختبار التشخيص:\n١. افتح تطبيق أوبر درايفر وأظهر عرض رحلة حقيقي.\n٢. ارجع لتطبيق Super Driver وافتح شاشة التشخيص.\n٣. اضغط تحديث للتحقق من التقاط السعر والمسافة بنجاح.',
+                                'How to diagnose:\n1. Open Uber Driver and receive a trip offer.\n2. Switch to Super Driver Diagnostics.\n3. Tap Refresh to verify captured fare & distance.',
+                              ),
+                              style: const TextStyle(fontSize: 13, color: Color(0xFFA7F3D0), height: 1.5),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+      ),
+    );
+  }
+
+  Widget _resultRow(String label, String value, Color color) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 14, color: Color(0xFF94A3B8))),
+        Text(
+          value,
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color, fontFamily: 'monospace'),
+        ),
+      ],
+    );
+  }
 }

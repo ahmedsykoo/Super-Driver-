@@ -1,38 +1,70 @@
 class PriceCalculator {
-  static const _number = r'([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)';
+  static const _number = r'([0-9]+(?:\.[0-9]+)?)';
+  static const _currency = r'(?:EGP|LE|L\.E\.?|ج\s*[\.،]?\s*م\s*[\.،]?|جنيه|جنيه\s*مصر[يى])';
+  static const _unit = r'(?:كم|كلم|كيلومتر|كيلو|كم\.|كلم\.|km|kms|mi|miles?)';
+  static const _dur = r'(?:د(?:قيقة|قائق)?|دق|h|hr|hrs|hours?|ساعة|ساعات|س|min(?:utes?)?)';
 
-  static String _normalizeDigits(String value) {
-    const arabic = '٠١٢٣٤٥٦٧٨٩';
-    const persian = '۰۱۲۳۴۵۶۷۸۹';
-    var out = value;
-    for (var i = 0; i < 10; i++) {
-      out = out.replaceAll(arabic[i], '$i').replaceAll(persian[i], '$i');
+  static String normalizeText(String value) {
+    const arabicDigits = '٠١٢٣٤٥٦٧٨٩';
+    const persianDigits = '۰۱۲۳۴۵۶۷۸۹';
+    final out = StringBuffer();
+
+    for (var i = 0; i < value.length; i++) {
+      final ch = value[i];
+      final aIdx = arabicDigits.indexOf(ch);
+      if (aIdx >= 0) {
+        out.write(aIdx);
+        continue;
+      }
+      final pIdx = persianDigits.indexOf(ch);
+      if (pIdx >= 0) {
+        out.write(pIdx);
+        continue;
+      }
+      if (ch == '،' || ch == '٫') {
+        out.write('.');
+        continue;
+      }
+      if (ch == '٬') {
+        continue; // Thousand separator
+      }
+      // Strip invisible Bidi & Zero-width characters & tatweel
+      final code = ch.codeUnitAt(0);
+      if (code == 0x200E ||
+          code == 0x200F ||
+          code == 0x061C ||
+          (code >= 0x202A && code <= 0x202E) ||
+          (code >= 0x2066 && code <= 0x2069) ||
+          code == 0x200B ||
+          code == 0xFEFF ||
+          code == 0x0640 ||
+          (code >= 0x064B && code <= 0x065F)) {
+        continue;
+      }
+      // Normalize Unicode spaces
+      if (code == 0x00A0 || code == 0x202F || (code >= 0x2000 && code <= 0x200A)) {
+        out.write(' ');
+        continue;
+      }
+      out.write(ch);
     }
-    return out.replaceAll('،', '.').replaceAll('٫', '.').replaceAll('٬', '').replaceAll(',', '.');
+    return out.toString();
   }
 
-  static double? _parse(String value) => double.tryParse(_normalizeDigits(value));
+  static double? _parse(String value) => double.tryParse(value);
 
-  /// A parsed distance with its position in the text.
-  static double? _firstValue(RegExp re, String text) {
-    final m = re.firstMatch(text);
-    if (m == null) return null;
-    for (var i = 1; i <= m.groupCount; i++) {
-      final v = _parse(m.group(i) ?? '');
-      if (v != null && v > 0) return v;
-    }
-    return null;
-  }
-
-  /// All parsed (value, start, end) hits in a text.
+  /// All parsed hits: [value, start, end]
   static List<List<double>> _allHits(RegExp re, String text) {
     final out = <List<double>>[];
     for (final m in re.allMatches(text)) {
       for (var i = 1; i <= m.groupCount; i++) {
-        final v = _parse(m.group(i) ?? '');
-        if (v != null && v > 0) {
-          out.add([v, m.start.toDouble(), m.end.toDouble()]);
-          break;
+        final valStr = m.group(i);
+        if (valStr != null) {
+          final v = _parse(valStr);
+          if (v != null && v > 0) {
+            out.add([v, m.start.toDouble(), m.end.toDouble()]);
+            break;
+          }
         }
       }
     }
@@ -40,198 +72,179 @@ class PriceCalculator {
   }
 
   static double? extractPrice(String text) {
-    final patterns = [
-      RegExp(r'(?:السعر|سعر الرحلة|Price|Trip Price)\s*[:：]?\s*' + _number, caseSensitive: false),
-      RegExp(_number + r'\s*(?:ج\s*\.?\s*م|ج\.م|EGP|جنيه)', caseSensitive: false),
-      RegExp(r'(?:ج\s*\.?\s*م|ج\.م|EGP|جنيه)\s*' + _number, caseSensitive: false),
+    final norm = normalizeText(text);
+
+    final pricePatterns = [
+      RegExp(
+        r'(?:القبول\s+مقابل|قبول\s+مقابل|قبول\s+المشوار\s+مقابل|القبول|قبول|السعر|سعر\s+(?:الرحلة|المشوار)|المجموع|الإجمالي|المبلغ|الأجرة|الاجرة|أجرة\s+الرحلة|اجرة\s+الرحلة|fare|trip\s+price|price|total|accept\s+for)\s*[:：\-]?\s*(?:' +
+            _currency +
+            r'\s*)?' +
+            _number +
+            r'(?:\s*' +
+            _currency +
+            r')?',
+        caseSensitive: false,
+      ),
+      RegExp(_currency + r'\s*[:：\-]?\s*' + _number, caseSensitive: false),
+      RegExp(_number + r'\s*' + _currency, caseSensitive: false),
     ];
-    for (final p in patterns) {
-      final v = _firstValue(p, text);
-      if (v != null && v > 0) return v;
+
+    for (final p in pricePatterns) {
+      final hits = _allHits(p, norm);
+      if (hits.isNotEmpty) {
+        return hits.first[0];
+      }
     }
     return null;
   }
 
   static double? extractDistance(String text) {
-    final patterns = [
-      RegExp(r'(?:المسافة|مسافة|Distance)\s*[:：]?\s*' + _number + r'\s*(?:كم|كلم|km)', caseSensitive: false),
-      RegExp(_number + r'\s*(?:كم|كلم|km)', caseSensitive: false),
-    ];
-    for (final p in patterns) {
-      final v = _firstValue(p, text);
-      if (v != null && v > 0) return v;
-    }
-    return null;
+    return extractTripDistance(text, policy: 'strict') ??
+        extractTripDistance(text, policy: 'bare');
   }
 
   // ----------------------------------------------------------------
   // Structured trip-distance extraction.
   //
-  // [policy] is a String (not an enum) so this file stays free of any
-  // nested types that would trip the analyzer on older Dart versions.
-  // Accepted values:
-  //   'strict'  – only labelled trip distances (default)
-  //   'pickup'  – trip, otherwise pickup
-  //   'bare'    – trip, otherwise the bare "X km" closest to the price
-  //   'both'    – trip + pickup (used when includePickupDistance is on)
+  // Accepted policy values:
+  //   'strict'  – only labelled trip distances
+  //   'pickup'  – only pickup distance
+  //   'both'    – trip + pickup (when includePickupDistance is enabled)
+  //   'bare'    – trip, otherwise bare fallback
   // ----------------------------------------------------------------
   static double? extractTripDistance(
     String text, {
     String policy = 'strict',
   }) {
-    final norm = _normalizeDigits(text);
+    final norm = normalizeText(text);
 
-    // 1. Strong trip labels – these win outright.
-    final tripStrong = _allHits(
-        RegExp(
-          r'(?:مسافة\s+الرحلة|trip\s+distance|route\s+distance)' +
-              r'\s*[:：\-]?\s*' +
-              _number +
-              r'\s*(?:كم|كلم|km|ميل|mi)',
-          caseSensitive: false,
-        ),
-        norm);
-    if (tripStrong.isNotEmpty) {
-      return _maxValue(tripStrong);
+    // 1. Pickup patterns
+    final pickupPatterns = [
+      RegExp(
+        r'(?:على\s+بعد|يبعد|يَبْعُد|بعد\s+عنك|الوصول\s+إلى|استلام|البيك\s*اب|pickup|pick[\s-]?up)\s*(?:distance)?\s*[:：\-]?\s*(?:[0-9]+\s*' +
+            _dur +
+            r'\s*)?\(?\s*' +
+            _number +
+            r'\s*' +
+            _unit +
+            r'\)?',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'(?:[0-9]+\s*' +
+            _dur +
+            r'\s*)?\(?\s*' +
+            _number +
+            r'\s*' +
+            _unit +
+            r'\)?\s*(?:away|pickup|pick[\s-]?up|على\s+بعد|يبعد|بعد\s+عنك)',
+        caseSensitive: false,
+      ),
+    ];
+
+    final pickupHits = <List<double>>[];
+    for (final p in pickupPatterns) {
+      pickupHits.addAll(_allHits(p, norm));
     }
+    final pickupVal = pickupHits.isNotEmpty ? _maxValue(pickupHits) : null;
 
-    // 2. Parenthesised "(المسافة 4.5 كلم)" inside a duration block.
-    final tripParen = _allHits(
-        RegExp(
-          r'\(\s*(?:المسافة|مسافة|distance)\s+' +
-              _number +
-              r'\s*(?:كم|كلم|km|ميل|mi)\s*\)',
-          caseSensitive: false,
-        ),
-        norm);
-    if (tripParen.isNotEmpty) {
-      return _maxValue(tripParen);
-    }
+    // 2. Trip patterns
+    final tripPatterns = [
+      // Strong label
+      RegExp(
+        r'(?:مسافة\s+الرحلة|مسافة\s+المشوار|المشوار|الرحلة|trip\s+distance|route\s+distance|dropoff|drop-off)\s*[:：\-]?\s*' +
+            _number +
+            r'\s*' +
+            _unit,
+        caseSensitive: false,
+      ),
+      // Trip with duration prefix (مشوار لمدة 21 د (16.9 كلم))
+      RegExp(
+        r'(?:مشوار|رحلة|مشوار\s+لمدة|رحلة\s+لمدة|trip)\s*(?:لمدة\s+)?[0-9]+\s*' +
+            _dur +
+            r'\s*\(?\s*(?:(?:المسافة|مسافة|distance)\s+)?' +
+            _number +
+            r'\s*' +
+            _unit +
+            r'\)?',
+        caseSensitive: false,
+      ),
+      // Trip with duration and trip suffix (18 min (12.4 km) trip)
+      RegExp(
+        r'(?:[0-9]+\s*' +
+            _dur +
+            r'\s*)?\(?\s*(?:(?:المسافة|مسافة|distance)\s+)?' +
+            _number +
+            r'\s*' +
+            _unit +
+            r'\)?\s*(?:trip|مشوار|رحلة|dropoff|drop-off)',
+        caseSensitive: false,
+      ),
+      // Duration followed by parenthesized distance: 21 د (16.9 كلم)
+      RegExp(
+        r'[0-9]+\s*' +
+            _dur +
+            r'\s*\(\s*(?:(?:المسافة|مسافة|distance)\s+)?' +
+            _number +
+            r'\s*' +
+            _unit +
+            r'\s*\)',
+        caseSensitive: false,
+      ),
+      // Generic "المسافة 16.9 كم"
+      RegExp(
+        r'(?:المسافة|مسافة|distance|route)\s*[:：\-]?\s*' +
+            _number +
+            r'\s*' +
+            _unit,
+        caseSensitive: false,
+      ),
+    ];
 
-    // 3. Generic "المسافة 4.5 كلم" / "Distance: 3.7 km".
-    final tripAny = _allHits(
-        RegExp(
-          r'(?:المسافة|مسافة|distance|route)\s*[:：\-]?\s*' +
-              _number +
-              r'\s*(?:كم|كلم|km|ميل|mi)',
-          caseSensitive: false,
-        ),
-        norm);
-    if (tripAny.isNotEmpty) {
-      return _maxValue(tripAny);
-    }
-
-    // 4. Uber "مشوار لمدة 10 د (المسافة 4.5 كلم)" duration block.
-    final dur = _allHits(
-        RegExp(
-          r'مشوار\s+لمدة\s+[0-9٠-٩۰-۹]+\s*(?:د(?:قيقة)?|دق|h|hr|ساعة|س(?:اعة)?)' +
-              r'\s*\(\s*(?:المسافة|مسافة|distance)\s+' +
-              _number +
-              r'\s*(?:كم|كلم|km|ميل|mi)\s*\)',
-          caseSensitive: false,
-        ),
-        norm);
-    if (dur.isNotEmpty) {
-      return _maxValue(dur);
-    }
-
-    // 5. Pickup labels – never the trip unless policy == 'both' or 'pickup'.
-    final pickupAr = _allHits(
-        RegExp(
-          r'(?:على\s+بعد|يبعد|يَبْعُد|الوصول\s+إلى|بعد\s+عنك)' +
-              r'[^0-9٠-٩۰-۹]*' +
-              _number +
-              r'\s*(?:كم|كلم|km|ميل|mi)',
-          caseSensitive: false,
-        ),
-        norm);
-    final pickupEn = _allHits(
-        RegExp(
-          r'(?:pickup|pick[\s-]?up)\s*(?:distance)?\s*[:：\-]?\s*' +
-              _number +
-              r'\s*(?:كم|كلم|km|ميل|mi)',
-          caseSensitive: false,
-        ),
-        norm);
-    final pickups = <List<double>>[]
-      ..addAll(pickupAr)
-      ..addAll(pickupEn);
-
-    // 6. Bare "X km" fallback. Keep the position so we can pick the one
-    //    closest to the price.
-    final bareAll = _allHits(
-        RegExp(
-          r'~?\s*' + _number + r'\s*(?:كم|كلم|km|ميل|mi)',
-          caseSensitive: false,
-        ),
-        norm);
-    final bare = <List<double>>[];
-    for (final b in bareAll) {
-      var overlap = false;
-      for (final p in pickups) {
-        if (b[1] < p[2] && p[1] < b[2]) {
-          overlap = true;
-          break;
+    final tripHits = <List<double>>[];
+    for (final tp in tripPatterns) {
+      for (final h in _allHits(tp, norm)) {
+        final overlaps = pickupHits.any((p) =>
+            (p[1] <= h[1] && h[1] < p[2]) || (h[1] <= p[1] && p[1] < h[2]));
+        if (!overlaps) {
+          tripHits.add(h);
         }
       }
-      if (!overlap) bare.add(b);
+      if (tripHits.isNotEmpty) break;
     }
 
-    if (policy == 'strict') return null;
+    final tripVal = tripHits.isNotEmpty ? _maxValue(tripHits) : null;
+
+    if (policy == 'strict') {
+      return tripVal;
+    }
     if (policy == 'pickup') {
-      if (pickups.isEmpty) return null;
-      return _maxValue(pickups);
+      return pickupVal;
     }
     if (policy == 'both') {
-      if (pickups.isEmpty) return null;
-      var sum = 0.0;
-      for (final p in pickups) {
-        sum += p[0];
+      if (tripVal != null && pickupVal != null) {
+        return tripVal + pickupVal;
       }
-      return sum;
+      return tripVal ?? pickupVal;
     }
-    // 'bare'
-    if (bare.isEmpty) return null;
 
-    // Find the price position so we can anchor the bare distance to it.
-    final priceLabelMatch = RegExp(
-      r'(?:السعر|سعر\s+الرحلة|القبول\s+مقابل|fare|trip\s+price|price)' +
-          r'\s*[:：\-]?\s*' +
-          _number +
-          r'\s*(?:ج\s*\.?\s*م|ج\.م|EGP|جنيه)',
+    // 'bare' policy fallback
+    if (tripVal != null) return tripVal;
+
+    final barePattern = RegExp(
+      r'~?\s*' + _number + r'\s*' + _unit,
       caseSensitive: false,
-    ).firstMatch(norm);
-    int? pricePos;
-    if (priceLabelMatch != null) {
-      pricePos = priceLabelMatch.start;
-    } else {
-      final afterPrices = _allHits(
-          RegExp(
-            r'(?<![0-9٠-٩۰-۹])' + _number +
-                r'\s*(?:ج\s*\.?\s*م|ج\.م|EGP|جنيه)',
-            caseSensitive: false,
-          ),
-          norm);
-      if (afterPrices.isNotEmpty) pricePos = afterPrices.first[1].toInt();
+    );
+    final bareHits = _allHits(barePattern, norm).where((h) {
+      return !pickupHits.any((p) =>
+          (p[1] <= h[1] && h[1] < p[2]) || (h[1] <= p[1] && p[1] < h[2]));
+    }).toList();
+
+    if (bareHits.isNotEmpty) {
+      return bareHits.last[0];
     }
 
-    List<double>? best;
-    for (final b in bare) {
-      if (best == null) {
-        best = b;
-        continue;
-      }
-      if (pricePos != null) {
-        final gapBest = (best[1] - pricePos).abs();
-        final gapHere = (b[1] - pricePos).abs();
-        if (gapHere < gapBest || (gapHere == gapBest && b[0] < best[0])) {
-          best = b;
-        }
-      } else if (b[0] < best[0]) {
-        best = b;
-      }
-    }
-    return best?[0];
+    return pickupVal;
   }
 
   static double _maxValue(List<List<double>> hits) {
