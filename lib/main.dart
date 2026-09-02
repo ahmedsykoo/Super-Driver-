@@ -34,9 +34,17 @@ class SuperDriverApp extends StatefulWidget {
 }
 
 class _SuperDriverAppState extends State<SuperDriverApp> {
-  late Locale _locale = widget.initialLocale;
-  late bool _isDark = widget.initialDarkMode;
-  late bool _loggedIn = widget.loggedIn;
+  late Locale _locale;
+  late bool _isDark;
+  late bool _loggedIn;
+
+  @override
+  void initState() {
+    super.initState();
+    _locale = widget.initialLocale;
+    _isDark = widget.initialDarkMode;
+    _loggedIn = widget.loggedIn;
+  }
 
   Future<void> _setLocale(Locale locale) async {
     final prefs = await SharedPreferences.getInstance();

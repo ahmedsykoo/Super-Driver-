@@ -39,7 +39,6 @@ class _DebugScreenState extends State<DebugScreen> {
   bool get isArabic => Localizations.localeOf(context).languageCode == 'ar';
   String _tr(String ar, String en) => isArabic ? ar : en;
   String _rawText = '';
-  String _ocrText = '';
   bool _loading = true;
   String _extractedPrice = '—';
   String _extractedTrip = '—';
@@ -54,7 +53,6 @@ class _DebugScreenState extends State<DebugScreen> {
   Future<void> _refresh() async {
     setState(() => _loading = true);
     final text = await DebugBridge.getLatestText();
-    final ocr = await DebugBridge.getOcrText();
     final price = PriceCalculator.extractPrice(text);
     final trip = PriceCalculator.extractTripDistance(text, policy: 'strict') ??
         PriceCalculator.extractTripDistance(text, policy: 'bare');
@@ -65,7 +63,6 @@ class _DebugScreenState extends State<DebugScreen> {
     if (!mounted) return;
     setState(() {
       _rawText = text;
-      _ocrText = ocr;
       _extractedPrice = price != null ? '${price.toStringAsFixed(2)} EGP' : '—';
       _extractedTrip = trip != null ? '${trip.toStringAsFixed(2)} km' : '—';
       _perKm = perKm != '—' ? '$perKm EGP/km' : '—';
