@@ -27,12 +27,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   AccessibilityStatus _status = const AccessibilityStatus(overlay: false, accessibility: false, monitoring: false);
   double _minPrice = 7.5;
   double _discount = 0;
-  String _selectedApp = 'Uber';
-  String get _appKey => _selectedApp.toLowerCase().replaceAll(' ', '_');
   final _price = TextEditingController();
   final _distance = TextEditingController();
-  final _min = TextEditingController(text: '7.5');
-  final _discountController = TextEditingController(text: '0');
   List<TripData> _history = [];
   String? _lastRecordedSignature;
   bool get isArabic => Localizations.localeOf(context).languageCode == 'ar';
@@ -51,8 +47,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() {
       _minPrice = p.getDouble('minPrice_uber') ?? p.getDouble('minPrice') ?? 7.5;
       _discount = p.getDouble('discount_uber') ?? p.getDouble('uberDiscount') ?? 0;
-      _min.text = _minPrice.toString();
-      _discountController.text = _discount.toString();
       _history = history;
     });
     await _refreshStatus();
@@ -93,28 +87,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
     }
     await _refreshStatus();
-  }
-
-  Future<void> _save() async {
-    final min = double.tryParse(_min.text.replaceAll(',', '.')) ?? 7.5;
-    final discount = (double.tryParse(_discountController.text.replaceAll(',', '.')) ?? 0).clamp(0, 100).toDouble();
-    final p = await SharedPreferences.getInstance();
-    await p.setDouble('minPrice_$_appKey', min);
-    await p.setDouble('discount_$_appKey', discount);
-    if (_selectedApp == 'Uber') {
-      await p.setDouble('minPrice', min);
-      await p.setDouble('uberDiscount', discount);
-    }
-    if (!mounted) return;
-    setState(() { _minPrice = min; _discount = discount; });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: const Color(0xFF10B981),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        content: Text(_tr('تم حفظ الإعدادات بنجاح', 'Settings saved successfully')),
-      ),
-    );
   }
 
   Future<void> _recordTrip(TripData trip) async {
@@ -200,8 +172,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _price.dispose();
     _distance.dispose();
-    _min.dispose();
-    _discountController.dispose();
     super.dispose();
   }
 

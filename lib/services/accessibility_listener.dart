@@ -17,8 +17,13 @@ class AccessibilityStatus {
 class AccessibilityListener {
   static const _channel = MethodChannel('com.superdriver/accessibility');
 
-  static Future<bool> isOverlayPermissionGranted() async =>
-      await _channel.invokeMethod<bool>('isOverlayPermissionGranted') ?? false;
+  static Future<bool> isOverlayPermissionGranted() async {
+    try {
+      return await _channel.invokeMethod<bool>('isOverlayPermissionGranted') ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
 
   static Future<bool> openOverlaySettings() async {
     try {
@@ -28,8 +33,13 @@ class AccessibilityListener {
     }
   }
 
-  static Future<bool> isAccessibilityEnabled() async =>
-      await _channel.invokeMethod<bool>('isAccessibilityEnabled') ?? false;
+  static Future<bool> isAccessibilityEnabled() async {
+    try {
+      return await _channel.invokeMethod<bool>('isAccessibilityEnabled') ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
 
   static Future<bool> openAccessibilitySettings() async {
     try {
@@ -39,8 +49,13 @@ class AccessibilityListener {
     }
   }
 
-  static Future<bool> isMonitoringEnabled() async =>
-      await _channel.invokeMethod<bool>('isMonitoringEnabled') ?? false;
+  static Future<bool> isMonitoringEnabled() async {
+    try {
+      return await _channel.invokeMethod<bool>('isMonitoringEnabled') ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
 
   static Future<bool> setMonitoringEnabled(bool enabled) async {
     try {
