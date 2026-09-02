@@ -2,6 +2,8 @@ name: Build Super Driver APK
 
 on:
   push:
+    branches: [main, "arena/**"]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
