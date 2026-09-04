@@ -1,0 +1,106 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - "**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Find Android Gradle project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # The repository may contain the project directly, inside a folder,
+          # or as a ZIP uploaded through GitHub's web interface.
+          ZIP_FILE="$(find . -type f -name '*.zip'             -not -path './.git/*'             -print -quit || true)"
+
+          if [[ -n "$ZIP_FILE" ]]; then
+            echo "ZIP source detected: $ZIP_FILE"
+            rm -rf _github_source
+            mkdir -p _github_source
+            unzip -q -o "$ZIP_FILE" -d _github_source
+          fi
+
+          GRADLEW="$(find . -type f -name gradlew             -not -path './.git/*'             -not -path '*/.gradle/*'             -print -quit || true)"
+
+          if [[ -z "$GRADLEW" ]]; then
+            echo "::error::No Gradle wrapper (gradlew) was found."
+            echo "Top-level repository contents:"
+            find . -maxdepth 4 -type f | sort | head -250
+            exit 1
+          fi
+
+          PROJECT_DIR="$(dirname "$GRADLEW")"
+          PROJECT_DIR="$(realpath "$PROJECT_DIR")"
+
+          test -f "$PROJECT_DIR/settings.gradle.kts" ||           test -f "$PROJECT_DIR/settings.gradle" || {
+            echo "::error::Gradle settings file not found beside gradlew: $PROJECT_DIR"
+            exit 1
+          }
+
+          test -f "$PROJECT_DIR/app/build.gradle.kts" ||           test -f "$PROJECT_DIR/app/build.gradle" || {
+            echo "::error::Android app Gradle file not found at $PROJECT_DIR/app/"
+            exit 1
+          }
+
+          test -f "$PROJECT_DIR/gradle/wrapper/gradle-wrapper.jar" || {
+            echo "::error::Gradle wrapper JAR is missing."
+            exit 1
+          }
+
+          echo "ANDROID_PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Android project found at: $PROJECT_DIR"
+
+      - name: Prepare Gradle wrapper
+        working-directory: ${{ env.ANDROID_PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew --version
+
+      - name: Run unit tests
+        working-directory: ${{ env.ANDROID_PROJECT_DIR }}
+        run: ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Build Debug APK
+        working-directory: ${{ env.ANDROID_PROJECT_DIR }}
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Verify APK
+        working-directory: ${{ env.ANDROID_PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK"
+          echo "APK successfully created:"
+          ls -lh "$APK"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Super-Driver-Egypt-Arabic-debug
+          path: ${{ env.ANDROID_PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
