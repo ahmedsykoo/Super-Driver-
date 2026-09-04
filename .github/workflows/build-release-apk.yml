@@ -1,17 +1,14 @@
-name: Build Android APK
+name: Build Release APK
 
 on:
-  push:
-    branches:
-      - '**'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build-apk:
-    name: Build Debug APK
+  build-release:
+    name: Build Release APK
     runs-on: ubuntu-latest
 
     steps:
@@ -29,20 +26,14 @@ jobs:
         working-directory: android
         run: chmod +x ./gradlew
 
-      - name: Build APK
+      - name: Build release APK
         working-directory: android
-        run: ./gradlew --no-daemon clean assembleDebug
+        run: ./gradlew --no-daemon clean assembleRelease
 
-      - name: Rename APK
-        run: |
-          mkdir -p artifacts
-          cp android/app/build/outputs/apk/debug/app-debug.apk \
-             artifacts/PanaUber-Egypt-Arabic-debug.apk
-
-      - name: Upload APK
+      - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: PanaUber-Egypt-Arabic-APK
-          path: artifacts/PanaUber-Egypt-Arabic-debug.apk
+          name: PanaUber-Egypt-Arabic-release-APK
+          path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
