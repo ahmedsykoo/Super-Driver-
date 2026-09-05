@@ -1,0 +1,132 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, master, egypt-market ]
+  pull_request:
+    branches: [ main, master ]
+  # تقدر تشغله يدوي من GitHub
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'نوع البناء'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. تحميل الكود ──────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── 2. Java 17 (مطلوب للـ Gradle في المشروع) ───────────
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      # ── 3. صلاحيات Gradle ───────────────────────────────────
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
+      # ── 4. Cache Gradle dependencies ────────────────────────
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # ── 5. Build Debug APK (دايمًا) ─────────────────────────
+      - name: Build Debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --stacktrace
+        env:
+          SHOW_ADS: "false"
+
+      # ── 6. Build Release APK (لو عندك keystore) ─────────────
+      # لتفعيل هذه الخطوة:
+      # 1. اعمل keystore وحوّله لـ base64: base64 release.keystore
+      # 2. أضف في GitHub → Settings → Secrets:
+      #    KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
+      - name: Build Release APK
+        if: github.ref == 'refs/heads/main' && secrets.KEYSTORE_BASE64 != ''
+        working-directory: android
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > release.keystore
+          ./gradlew assembleRelease \
+            -PKEYSTORE_FILE=../release.keystore \
+            -PKEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }} \
+            -PKEY_ALIAS=${{ secrets.KEY_ALIAS }} \
+            -PKEY_PASSWORD=${{ secrets.KEY_PASSWORD }} \
+            --stacktrace
+        env:
+          SHOW_ADS: "true"
+
+      # ── 7. رفع الـ APK كـ Artifact ───────────────────────────
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PanAuber-Debug-${{ github.sha }}
+          path: android/app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+
+      - name: Upload Release APK
+        if: github.ref == 'refs/heads/main' && secrets.KEYSTORE_BASE64 != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: PanAuber-Release-${{ github.sha }}
+          path: android/app/build/outputs/apk/release/*.apk
+          retention-days: 30
+
+      # ── 8. معلومات الـ Build ─────────────────────────────────
+      - name: Show APK info
+        run: |
+          echo "=== Debug APK ==="
+          find android/app/build/outputs/apk/debug -name "*.apk" -exec ls -lh {} \;
+          echo ""
+          echo "✅ البناء اكتمل — حمّل الـ APK من Artifacts أعلاه"
+
+  # ── Job منفصل للـ Unit Tests ─────────────────────────────────
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
+      - name: Run Unit Tests
+        working-directory: android
+        run: ./gradlew test --stacktrace
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: android/app/build/reports/tests/
+          retention-days: 7
