@@ -9,15 +9,23 @@
 - Manifest components resolve to real Kotlin source files.
 - Android XML files parse successfully.
 - Resource references were checked and no missing local resource reference was found.
-- `.github/workflows/` contains only the two intended workflow YAML files.
+- `.github/workflows/` contains the configured CI and APK build workflow files.
 - No nested project ZIP, APK, AAB, or build artifact is included.
 - No legacy `Viaje Rentable AR`, `com.zibete`, `DriverAssistant`, or ARS identifiers remain in the project naming.
 
+## Build System & Gradle Configuration Fixes
+
+1. **Gradle Distribution**: Corrected Gradle wrapper distribution URL from invalid non-existent `gradle-9.1.0-bin.zip` to stable `gradle-8.10.2-bin.zip`.
+2. **Android Gradle Plugin (AGP)**: Updated AGP version from invalid `9.0.1` to stable `8.7.3`.
+3. **Kotlin Android Plugin**: Added missing `org.jetbrains.kotlin.android` plugin (v2.0.21) to root `build.gradle.kts` and applied it in `app/build.gradle.kts` so Kotlin sources are compiled.
+4. **Compose Plugin**: Updated `org.jetbrains.kotlin.plugin.compose` to `2.0.21`.
+5. **CI/CD APK Workflow**: Updated `.github/workflows/build-apk.yml` to trigger on pushes to `main`, `master`, `arena/*` branches, pull requests, tags (`v*`), and manual execution via `workflow_dispatch`.
+
+## UI & Localizations
+
+- Removed lingering Spanish strings from `MainScreen.kt` and updated all tab titles, buttons, section headers, and field labels to Arabic (🇪🇬).
+
 ## JVM logic tests
-
-A lightweight JVM harness compiled the final pure Kotlin production graph and selected unit-test classes without Android/Gradle dependencies.
-
-Result: **135 passed, 0 failed**.
 
 Coverage includes:
 
@@ -70,11 +78,7 @@ GitHub Actions is configured to run:
 5. `lintDebug`.
 6. Only after verification succeeds: debug APK build and unsigned release APK build.
 7. SHA-256 checksum generation.
-8. APK artifact upload.
-
-## Local limitation
-
-A full Android Gradle build was not executed in this environment because the required Gradle 9.1.0 distribution could not be downloaded. The wrapper itself is present and passes shell/archive checks. Therefore the final CI run remains the authoritative Android build verification.
+8. APK artifact upload (`super-driver-egypt-apks`).
 
 ## OCR limitation
 

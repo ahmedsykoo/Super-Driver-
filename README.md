@@ -41,13 +41,16 @@ Super-Driver-/
 
 المشروع يستخدم:
 
-- Android Gradle Plugin 9.0.1
-- Gradle 9.1.0
+- Android Gradle Plugin 8.7.3
+- Kotlin 2.0.21 (`org.jetbrains.kotlin.android`)
+- Gradle 8.10.2
 - JDK 17
 - compileSdk / targetSdk 36
 - applicationId: `com.superdriver.app`
 
 من Android Studio افتح **مجلد المشروع نفسه** الذي يحتوي على `settings.gradle.kts` و`gradlew`. لا يوجد ZIP داخل ZIP ولا مشروع مخبأ داخل `.github/workflows`، لأننا حاولنا بالفعل هذا النوع من العبث ووجدنا أنه يولد أخطاء لا علاقة لها بالتطبيق.
+
+يمكن بناء ملف APK تلقائيًا عبر GitHub Actions عند الـ Push أو من تبويب Actions بتشغيل سير العمل **Build Android APK** (Workflow Dispatch).
 
 ## الأذونات
 
