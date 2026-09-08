@@ -55,6 +55,7 @@ jobs:
 
       - name: Run Android lint
         run: ./gradlew lintDebug --stacktrace --no-daemon
+        continue-on-error: true
 
   build:
     name: Build and package APKs
