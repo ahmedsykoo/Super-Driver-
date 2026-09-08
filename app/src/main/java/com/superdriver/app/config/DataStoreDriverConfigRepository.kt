@@ -17,8 +17,9 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.io.IOException
+import java.net.URLDecoder
+import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
-import java.util.Base64
 
 private const val DRIVER_CONFIG_DATA_STORE_NAME = "driver_config"
 
@@ -38,22 +39,22 @@ class DataStoreDriverConfigRepository(
     }
 
     override val config: Flow<DriverConfig> = resolvedDataStore.data
-        .catch { error ->
-            if (error is IOException) {
-                emit(emptyPreferences())
-            } else {
-                throw error
-            }
+        .map { preferences ->
+            runCatching { preferences.toDriverConfig() }.getOrDefault(fallbackConfig)
         }
-        .map { preferences -> preferences.toDriverConfig() }
+        .catch { error ->
+            emit(fallbackConfig)
+        }
 
-    override suspend fun getConfig(): DriverConfig = config.first()
+    override suspend fun getConfig(): DriverConfig = runCatching { config.first() }.getOrDefault(fallbackConfig)
 
     override suspend fun updateConfig(config: DriverConfig) {
-        resolvedDataStore.edit { preferences ->
-            preferences.clear()
-            preferences.writeConfig(config)
-            preferences[initializedKey] = true
+        runCatching {
+            resolvedDataStore.edit { preferences ->
+                preferences.clear()
+                preferences.writeConfig(config)
+                preferences[initializedKey] = true
+            }
         }
     }
 
@@ -141,14 +142,14 @@ class DataStoreDriverConfigRepository(
     }
 
     private fun encodeToken(value: String): String {
-        return Base64.getUrlEncoder()
-            .withoutPadding()
-            .encodeToString(value.toByteArray(StandardCharsets.UTF_8))
+        return runCatching {
+            URLEncoder.encode(value, StandardCharsets.UTF_8.name())
+        }.getOrDefault(value)
     }
 
     private fun decodeToken(value: String): String? {
         return runCatching {
-            String(Base64.getUrlDecoder().decode(value), StandardCharsets.UTF_8)
+            URLDecoder.decode(value, StandardCharsets.UTF_8.name())
         }.getOrNull()
     }
 

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.superdriver.app">
 
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -15,7 +16,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.SuperDriver">
         <activity
-            android:name=".MainActivity"
+            android:name="com.superdriver.app.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -25,7 +26,7 @@
         </activity>
 
         <service
-            android:name=".overlay.DriverDecisionOverlayService"
+            android:name="com.superdriver.app.overlay.DriverDecisionOverlayService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
@@ -34,12 +35,12 @@
         </service>
 
         <service
-            android:name=".capture.ScreenCaptureFrameService"
+            android:name="com.superdriver.app.capture.ScreenCaptureFrameService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
 
         <service
-            android:name=".capture.ScreenCaptureMonitorService"
+            android:name="com.superdriver.app.capture.ScreenCaptureMonitorService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
     </application>

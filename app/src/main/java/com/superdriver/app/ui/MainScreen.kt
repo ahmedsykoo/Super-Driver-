@@ -409,9 +409,9 @@ private fun MainSectionTabs(
 private enum class MainSection(
     val title: String
 ) {
-    HOME("Inicio"),
+    HOME("الرئيسية"),
     SETTINGS("الإعدادات"),
-    DIAGNOSTIC("Diagnóstico")
+    DIAGNOSTIC("التشخيص")
 }
 
 private fun startDecisionOverlay(
@@ -560,7 +560,7 @@ private fun StatusSection(
                         onClick = onRequestOverlayPermission,
                         colors = darkOutlinedButtonColors()
                     ) {
-                        Text("Permitir ventana flotante")
+                        Text("السماح بالنافذة العائمة")
                     }
                     OutlinedButton(
                         modifier = Modifier.fillMaxWidth(),
@@ -620,7 +620,7 @@ private fun PrimaryMonitorSection(
                         contentColor = Color(0xFF06251F)
                     )
                 ) {
-                    Text("Iniciar monitoreo")
+                    Text("بدء المراقبة")
                 }
             }
             uiState.monitorErrorMessage?.let { errorMessage ->
@@ -791,13 +791,13 @@ private fun HomeConfigSummarySection(
                 )
                 InfoMetric(
                     modifier = Modifier.weight(1f),
-                    label = "Revisión",
+                    label = "هامش المراجعة",
                     value = form.reviewTolerancePercent.toPercentInputSummary()
                 )
             }
             HorizontalDivider(color = AppBorder)
             ReadOnlySettingRow(
-                label = "Reglas activas",
+                label = "القواعد النشطة",
                 value = config.toRulesSummary()
             )
             ReadOnlySettingRow(
@@ -855,7 +855,7 @@ private fun SettingsSection(
 
     ConfigGroupCard(
         title = "التكاليف التقديرية",
-        subtitle = "Valores usados para estimar costo y ganancia neta."
+        subtitle = "القيم المستخدمة لتقدير التكلفة وصافي الربح."
     ) {
         ConfigNumberField(
             label = "التكلفة لكل كم",
@@ -877,11 +877,11 @@ private fun SettingsSection(
     ) {
         ReadOnlySettingRow(
             label = "أقصى مسافة للوصول للراكب",
-            value = "Sin límite editable"
+            value = "بدون حد قابل للتعديل"
         )
         ReadOnlySettingRow(
             label = "أقصى دقائق للوصول للراكب",
-            value = "Sin límite editable"
+            value = "بدون حد قابل للتعديل"
         )
     }
 
@@ -912,11 +912,11 @@ private fun SettingsSection(
 
     ConfigGroupCard(
         title = "التطبيق والمناطق",
-        subtitle = "Filtros disponibles en la configuración local actual."
+        subtitle = "الفلاتر المتاحة في الإعدادات المحلية الحالية."
     ) {
         ReadOnlySettingRow(
-            label = "Plataformas habilitadas",
-            value = "Sin filtro por plataforma"
+            label = "المنصات المفعلة",
+            value = "بدون تصفية حسب المنصة"
         )
         if (config.avoidZones.isEmpty()) {
             ReadOnlySettingRow(
@@ -927,7 +927,7 @@ private fun SettingsSection(
             config.avoidZones.forEach { zone ->
                 ReadOnlySettingRow(
                     label = zone.name,
-                    value = if (zone.enabled) zone.policy.name.toZonePolicyLabel() else "Inactiva"
+                    value = if (zone.enabled) zone.policy.name.toZonePolicyLabel() else "غير نشطة"
                 )
             }
         }
@@ -959,7 +959,7 @@ private fun SettingsSection(
             onClick = onResetConfig,
             colors = darkOutlinedButtonColors()
         ) {
-            Text("Restablecer")
+            Text("إعادة ضبط")
         }
     }
 }
@@ -1055,7 +1055,7 @@ private fun DiagnosticToolsSection(
     onShowLastRealDecisionOverlay: () -> Unit
 ) {
     Text(
-        text = "Diagnóstico",
+        text = "التشخيص",
         style = MaterialTheme.typography.headlineSmall,
         fontWeight = FontWeight.Bold
     )
@@ -1142,7 +1142,7 @@ private fun DiagnosticToolsSection(
             value = uiState.monitorStatus
         )
         ReadOnlySettingRow(
-            label = "Servicio overlay",
+            label = "خدمة النافذة العائمة",
             value = uiState.serviceStatus
         )
         ReadOnlySettingRow(
