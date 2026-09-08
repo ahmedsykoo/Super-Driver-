@@ -11,10 +11,12 @@ import com.superdriver.app.ui.MainScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.dark(DARK_SYSTEM_BAR_COLOR)
-        )
+        runCatching {
+            enableEdgeToEdge(
+                statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+                navigationBarStyle = SystemBarStyle.dark(DARK_SYSTEM_BAR_COLOR)
+            )
+        }
         super.onCreate(savedInstanceState)
 
         setContent {

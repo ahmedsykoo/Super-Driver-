@@ -9,13 +9,30 @@ import com.superdriver.app.debug.SuperDriverDebugLogger
 
 class MlKitScreenTextRecognizer(
     private val bitmapPreprocessor: OcrBitmapPreprocessor = OcrBitmapPreprocessor(),
-    private val recognizer: TextRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    customRecognizer: TextRecognizer? = null
 ) {
+    private val recognizer: TextRecognizer? by lazy {
+        customRecognizer ?: runCatching {
+            TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        }.getOrNull()
+    }
+
     fun recognizeText(
         bitmap: Bitmap,
         traceId: String? = null,
         onResult: (OcrTextResult) -> Unit
     ) {
+        val activeRecognizer = recognizer
+        if (activeRecognizer == null) {
+            onResult(
+                OcrTextResult(
+                    status = OcrStatus.ERROR,
+                    errorMessage = "محرك OCR غير متاح على هذا الجهاز."
+                )
+            )
+            return
+        }
+
         val processedBitmap = bitmapPreprocessor.preprocess(bitmap)
         SuperDriverDebugLogger.log(
             "ocr preprocessing info",
@@ -24,7 +41,7 @@ class MlKitScreenTextRecognizer(
         )
         val image = InputImage.fromBitmap(processedBitmap, 0)
 
-        recognizer.process(image)
+        activeRecognizer.process(image)
             .addOnSuccessListener { recognizedText ->
                 val rawText = recognizedText.text.trim()
                 onResult(
@@ -54,6 +71,6 @@ class MlKitScreenTextRecognizer(
     }
 
     fun close() {
-        recognizer.close()
+        runCatching { recognizer?.close() }
     }
 }
